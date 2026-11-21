@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
@@ -179,10 +180,36 @@ function init() {
     composer.setSize(width, height);
 
     const renderPass = new RenderPass(scene, camera);
+    // Guard against any NaN/Inf pixel spreading across the whole frame via UnrealBloomPass
+    const sanitizePass = new ShaderPass({
+      uniforms: {
+        tDiffuse: { value: null },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDiffuse;
+        varying vec2 vUv;
+        float safeCh(float x) {
+          return (x >= 0.0 && x < 65000.0) ? min(x, 32.0) : 0.0;
+        }
+        void main() {
+          vec4 c = texture2D(tDiffuse, vUv);
+          float a = (c.a >= 0.0 && c.a <= 1.0) ? c.a : 1.0;
+          gl_FragColor = vec4(safeCh(c.r), safeCh(c.g), safeCh(c.b), a);
+        }
+      `,
+    });
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.16, 0.45, 0.92);
     const outputPass = new OutputPass();
 
     composer.addPass(renderPass);
+    composer.addPass(sanitizePass);
     composer.addPass(bloomPass);
     composer.addPass(outputPass);
 
@@ -226,6 +253,13 @@ function init() {
     };
     window.addEventListener('resize', onResize);
 
+    const computeTargetExposure = (clk) => {
+      const el = Number.isFinite(clk?.sunElevation) ? clk.sunElevation : 0.5;
+      const t = Math.max(0, Math.min(1, (0.14 - el) / 0.22));
+      const nightAdapt = t * t * (3 - 2 * t);
+      return 1.05 + nightAdapt * 0.19;
+    };
+
     // 初回フレームを描画してから読み込み画面を静かにフェードアウト
     const initWorldDt = clock.gameDtFromReal(0.016);
     garden.update(0.016, clock);
@@ -237,6 +271,8 @@ function init() {
     });
     followCamera.update(0.016, dog);
     ui.update(clock, garden, dog);
+    bloomPass.strength = clock.isNight ? 0.22 : 0.14;
+    renderer.toneMappingExposure = computeTargetExposure(clock);
     composer.render();
 
     window.requestAnimationFrame(() => {
@@ -266,9 +302,11 @@ function init() {
       soundscape.update(realDt, clock, garden, dog, camera.position);
       ui.update(clock, garden, dog);
 
-      // 夜の灯りが優しく滲むようブルームをわずかに調整
-      const targetBloom = clock.isNight ? 0.24 : 0.14;
+      // 夜の灯りが優しく滲むようブルームと露出をなめらかに調整
+      const targetBloom = clock.isNight ? 0.22 : 0.14;
       bloomPass.strength += (targetBloom - bloomPass.strength) * Math.min(1, realDt * 2);
+      const targetExp = computeTargetExposure(clock);
+      renderer.toneMappingExposure += (targetExp - renderer.toneMappingExposure) * Math.min(1, realDt * 2);
 
       composer.render();
     };

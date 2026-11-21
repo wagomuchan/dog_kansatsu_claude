@@ -16,17 +16,39 @@ function mulberry32(seed) {
 }
 
 function clamp(v, lo, hi) {
+  if (!Number.isFinite(v)) return lo;
   return v < lo ? lo : v > hi ? hi : v;
 }
 
 function lerp(a, b, t) {
-  return a + (b - a) * t;
+  const ft = Number.isFinite(t) ? t : 0;
+  return a + (b - a) * ft;
 }
 
 function smoothstep(edge0, edge1, x) {
+  if (!Number.isFinite(x)) return 0;
+  if (edge1 === edge0) return x < edge0 ? 0 : 1;
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
 }
+
+// Shared GLSL safety helpers (compatible with both GLSL ES 1.00 and 3.00)
+const GLSL_SAFE_FUNCS = /* glsl */ `
+vec3 safeNormalize3(vec3 v, vec3 fb) {
+  float l = length(v);
+  return l > 0.0001 ? (v / l) : fb;
+}
+vec2 safeNormalize2(vec2 v, vec2 fb) {
+  float l = length(v);
+  return l > 0.0001 ? (v / l) : fb;
+}
+float sanitizeChan(float x) {
+  return (x >= 0.0 && x < 65000.0) ? min(x, 32.0) : 0.0;
+}
+vec3 sanitizeColor(vec3 c) {
+  return max(vec3(sanitizeChan(c.r), sanitizeChan(c.g), sanitizeChan(c.b)), vec3(0.0));
+}
+`;
 
 // ============================================================================
 // Procedural Canvas Texture Generators (Zero External Assets)
@@ -1032,19 +1054,19 @@ const SEASON_COLORS = {
     spring: new THREE.Color('#3b6a27'),
     summer: new THREE.Color('#27541f'),
     autumn: new THREE.Color('#5c5928'),
-    winter: new THREE.Color('#5d523a'),
+    winter: new THREE.Color('#655338'),
   },
   grassTip: {
     spring: new THREE.Color('#5c9037'),
     summer: new THREE.Color('#3e732b'),
     autumn: new THREE.Color('#84783a'),
-    winter: new THREE.Color('#7c6f51'),
+    winter: new THREE.Color('#948058'),
   },
   groundBase: {
     spring: new THREE.Color('#47752d'),
     summer: new THREE.Color('#305f24'),
     autumn: new THREE.Color('#69632f'),
-    winter: new THREE.Color('#685c42'),
+    winter: new THREE.Color('#6a583c'),
   },
   treeLeafA: {
     spring: new THREE.Color('#78c247'),
@@ -1085,19 +1107,20 @@ const SEASON_COLORS = {
 };
 
 function blendSeasonColor(out, palette, weights) {
+  const ws = clamp(weights?.spring ?? 0, 0, 1);
+  const wsu = clamp(weights?.summer ?? 0, 0, 1);
+  const wa = clamp(weights?.autumn ?? 0, 0, 1);
+  const ww = clamp(weights?.winter ?? 0, 0, 1);
+  const sum = ws + wsu + wa + ww;
+  const inv = sum > 1e-5 ? 1 / sum : 0;
+  const s = sum > 1e-5 ? ws * inv : 1;
+  const su = wsu * inv;
+  const a = wa * inv;
+  const w = ww * inv;
   out.setRGB(
-    palette.spring.r * weights.spring +
-      palette.summer.r * weights.summer +
-      palette.autumn.r * weights.autumn +
-      palette.winter.r * weights.winter,
-    palette.spring.g * weights.spring +
-      palette.summer.g * weights.summer +
-      palette.autumn.g * weights.autumn +
-      palette.winter.g * weights.winter,
-    palette.spring.b * weights.spring +
-      palette.summer.b * weights.summer +
-      palette.autumn.b * weights.autumn +
-      palette.winter.b * weights.winter
+    Math.max(0, palette.spring.r * s + palette.summer.r * su + palette.autumn.r * a + palette.winter.r * w),
+    Math.max(0, palette.spring.g * s + palette.summer.g * su + palette.autumn.g * a + palette.winter.g * w),
+    Math.max(0, palette.spring.b * s + palette.summer.b * su + palette.autumn.b * a + palette.winter.b * w)
   );
   return out;
 }
@@ -1127,6 +1150,7 @@ export class Garden {
     this.fallingThings = [];
 
     // Internal weather & time tracking
+    this._hasInitialSync = false;
     this._targetWeather = 'clear';
     this._weatherTimerHours = 4.2;
     this._lastMealSlot = null;
@@ -1508,9 +1532,15 @@ export class Garden {
   // 1. Sky, Sun, Moon, Stars, Clouds, Lighting & PMREM
   // ==========================================================================
   _buildSkyAndLighting() {
-    // Three.js physical Sky dome
+    // Three.js physical Sky dome (initialize sunPosition immediately so normalize(0) NaN can never happen!)
     this._sky = new Sky();
     this._sky.scale.setScalar(450);
+    const initSkyU = this._sky.material.uniforms;
+    initSkyU.sunPosition.value.copy(this._sunDir).multiplyScalar(400);
+    initSkyU.turbidity.value = 3.2;
+    initSkyU.rayleigh.value = 1.45;
+    initSkyU.mieCoefficient.value = 0.005;
+    initSkyU.mieDirectionalG.value = 0.82;
     this.scene.add(this._sky);
 
     // Night sky luminous indigo dome (fades in smoothly when sun sets)
@@ -1521,17 +1551,19 @@ export class Garden {
       depthWrite: false,
       uniforms: {
         uOpacity: { value: 0.0 },
-        uZenithColor: { value: new THREE.Color('#070d20') },
-        uHorizonColor: { value: new THREE.Color('#182848') },
+        uZenithColor: { value: new THREE.Color('#0b142c') },
+        uHorizonColor: { value: new THREE.Color('#22365e') },
       },
       vertexShader: `
         varying vec3 vDir;
         void main() {
-          vDir = normalize(position);
+          float l = length(position);
+          vDir = l > 0.0001 ? (position / l) : vec3(0.0, 1.0, 0.0);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
+        ${GLSL_SAFE_FUNCS}
         uniform float uOpacity;
         uniform vec3 uZenithColor;
         uniform vec3 uHorizonColor;
@@ -1539,7 +1571,7 @@ export class Garden {
         void main() {
           float h = clamp(vDir.y, 0.0, 1.0);
           vec3 col = mix(uHorizonColor, uZenithColor, pow(max(h, 0.0001), 0.55));
-          gl_FragColor = vec4(col, uOpacity);
+          gl_FragColor = vec4(sanitizeColor(col), clamp(uOpacity, 0.0, 1.0));
         }
       `,
     });
@@ -1561,11 +1593,13 @@ export class Garden {
       vertexShader: `
         varying vec3 vDir;
         void main() {
-          vDir = normalize(position);
+          float l = length(position);
+          vDir = l > 0.0001 ? (position / l) : vec3(0.0, 1.0, 0.0);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
+        ${GLSL_SAFE_FUNCS}
         uniform float uOpacity;
         uniform vec3 uTopColor;
         uniform vec3 uHorizonColor;
@@ -1573,7 +1607,7 @@ export class Garden {
         void main() {
           float h = clamp(vDir.y, 0.0, 1.0);
           vec3 col = mix(uHorizonColor, uTopColor, pow(max(h, 0.0001), 0.6));
-          gl_FragColor = vec4(col, uOpacity);
+          gl_FragColor = vec4(sanitizeColor(col), clamp(uOpacity, 0.0, 1.0));
         }
       `,
     });
@@ -1635,19 +1669,20 @@ export class Garden {
           vColor = aColor;
           vTwinkle = 0.65 + 0.35 * sin(uTime * 1.9 + aPhase);
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * (340.0 / max(1.0, -mv.z));
+          gl_PointSize = clamp(aSize * (340.0 / max(1.0, -mv.z)), 0.0, 64.0);
           gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: `
+        ${GLSL_SAFE_FUNCS}
         uniform float uOpacity;
         varying vec3 vColor;
         varying float vTwinkle;
         void main() {
           float d = length(gl_PointCoord - vec2(0.5));
-          float alpha = smoothstep(0.5, 0.05, d) * uOpacity * vTwinkle;
+          float alpha = clamp(smoothstep(0.5, 0.05, d) * uOpacity * vTwinkle, 0.0, 1.0);
           if (alpha < 0.01) discard;
-          gl_FragColor = vec4(vColor * 1.15, alpha);
+          gl_FragColor = vec4(sanitizeColor(vColor * 1.15), alpha);
         }
       `,
     });
@@ -1700,11 +1735,13 @@ export class Garden {
       vertexShader: `
         varying vec3 vWorldDir;
         void main() {
-          vWorldDir = normalize(position);
+          float l = length(position);
+          vWorldDir = l > 0.0001 ? (position / l) : vec3(0.0, 1.0, 0.0);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
+        ${GLSL_SAFE_FUNCS}
         uniform float uTime;
         uniform float uCoverage;
         uniform vec3 uCloudBright;
@@ -1739,7 +1776,7 @@ export class Garden {
         }
 
         void main() {
-          vec3 d = normalize(vWorldDir);
+          vec3 d = safeNormalize3(vWorldDir, vec3(0.0, 1.0, 0.0));
           if (d.y < 0.02) discard;
           vec2 uv = d.xz / (d.y + 0.16);
           vec2 drift = vec2(uTime * 0.009, uTime * 0.005);
@@ -1750,14 +1787,15 @@ export class Garden {
           float threshold = mix(0.66, 0.24, uCoverage);
           float cloud = smoothstep(threshold, threshold + 0.26, density);
           float horizonFade = smoothstep(0.02, 0.22, d.y);
-          float alpha = cloud * horizonFade * uOpacity;
+          float alpha = clamp(cloud * horizonFade * uOpacity, 0.0, 1.0);
           if (alpha < 0.005) discard;
 
-          float sunAlign = max(0.0, dot(d, normalize(uSunDir)));
+          vec3 sDir = safeNormalize3(uSunDir, vec3(0.4, 0.7, 0.5));
+          float sunAlign = max(0.0, dot(d, sDir));
           float lightFactor = clamp(smoothstep(threshold, threshold + 0.4, density + 0.15) * 0.7 + 0.3, 0.0, 1.0);
           vec3 col = mix(uCloudShadow, uCloudBright, lightFactor);
           col += uSunGlowColor * pow(max(sunAlign, 0.0001), 5.0) * 0.45 * (1.0 - cloud * 0.4);
-          gl_FragColor = vec4(col, alpha);
+          gl_FragColor = vec4(sanitizeColor(col), alpha);
         }
       `,
     });
@@ -1806,7 +1844,7 @@ export class Garden {
       this._envNightDome = new THREE.Mesh(
         new THREE.SphereGeometry(85, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
         new THREE.MeshBasicMaterial({
-          color: 0x162442,
+          color: 0x385280,
           side: THREE.BackSide,
           transparent: true,
           opacity: 0.0,
@@ -1824,24 +1862,30 @@ export class Garden {
       return;
     }
     this._lastEnvUpdate = this._elapsed;
-    this._lastEnvSunY = this._sunDir.y;
+    this._lastEnvSunY = Number.isFinite(this._sunDir.y) ? this._sunDir.y : 0.7;
     this._lastEnvWeatherKey = weatherKey;
 
-    // Mirror current sky parameters into envSky
+    // Mirror current sky parameters into envSky (never allow zero sunPosition -> normalize(0) NaN!)
     const srcU = this._sky.material.uniforms;
     const dstU = this._envSky.material.uniforms;
-    dstU.turbidity.value = srcU.turbidity.value;
-    dstU.rayleigh.value = srcU.rayleigh.value;
-    dstU.mieCoefficient.value = srcU.mieCoefficient.value;
-    dstU.mieDirectionalG.value = srcU.mieDirectionalG.value;
-    dstU.sunPosition.value.copy(srcU.sunPosition.value);
+    dstU.turbidity.value = clamp(srcU.turbidity.value, 1.0, 20.0);
+    dstU.rayleigh.value = clamp(srcU.rayleigh.value, 0.05, 5.0);
+    dstU.mieCoefficient.value = clamp(srcU.mieCoefficient.value, 0.0005, 0.1);
+    dstU.mieDirectionalG.value = clamp(srcU.mieDirectionalG.value, 0.1, 0.99);
+    const sp = srcU.sunPosition.value;
+    if (sp.lengthSq() > 1e-4 && Number.isFinite(sp.x) && Number.isFinite(sp.y) && Number.isFinite(sp.z)) {
+      dstU.sunPosition.value.copy(sp);
+    } else {
+      dstU.sunPosition.value.set(160, 280, 200);
+    }
 
-    // Sync ground bounce & night tint
+    // Sync ground bounce & night tint (keep moonlit night reflections bright enough for dog coat readability)
     this._envGround.material.color
       .copy(this._sharedUniforms.uGroundColor.value)
       .lerp(this._tmpColor.set('#dde5ee'), this.snowCover * 0.85)
-      .multiplyScalar(this._isNight ? 0.25 : 0.9);
-    this._envNightDome.material.opacity = this._nightSkyMat.uniforms.uOpacity.value * 0.9;
+      .lerp(this._tmpColor2.set('#465874'), this._isNight ? 0.45 : 0.0)
+      .multiplyScalar(this._isNight ? 0.52 : 0.9);
+    this._envNightDome.material.opacity = clamp(this._nightSkyMat.uniforms.uOpacity.value * 0.85, 0.0, 0.92);
 
     const prevRT = this._envRT;
     this._envRT = this._pmremGenerator.fromScene(this._envScene, 0.04);
@@ -1940,6 +1984,7 @@ export class Garden {
     });
 
     const u = this._sharedUniforms;
+    terrainMat.customProgramCacheKey = () => 'garden_terrain_std';
     terrainMat.onBeforeCompile = (shader) => {
       shader.uniforms.uGroundColor = u.uGroundColor;
       shader.uniforms.uSnowCover = u.uSnowCover;
@@ -1965,6 +2010,7 @@ export class Garden {
         .replace(
           '#include <common>',
           `#include <common>
+          ${GLSL_SAFE_FUNCS}
           uniform vec3 uGroundColor;
           uniform float uSnowCover;
           uniform float uWetness;
@@ -2001,13 +2047,18 @@ export class Garden {
                            + sin((vTerrainWorldPos.x + vTerrainWorldPos.z) * 1.6) * 0.06;
           float snowAmt = smoothstep(0.05, 0.78, uSnowCover + patchNoise) * (1.0 - underwater);
           vec3 snowCol = vec3(0.92, 0.95, 0.99);
-          diffuseColor.rgb = mix(baseCol, snowCol, snowAmt);`
+          diffuseColor.rgb = sanitizeColor(mix(baseCol, snowCol, snowAmt));`
         )
         .replace(
           '#include <roughnessmap_fragment>',
           `#include <roughnessmap_fragment>
           float wetR = mix(roughnessFactor, 0.32, uWetness * (1.0 - uSnowCover * 0.8));
-          roughnessFactor = mix(wetR, 0.82, uSnowCover);`
+          roughnessFactor = clamp(mix(wetR, 0.82, uSnowCover), 0.08, 1.0);`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
         );
     };
 
@@ -2164,6 +2215,7 @@ export class Garden {
       metalness: 0.0,
     });
     const bgU = this._bgTreeLeafUniforms;
+    bgLeafMat.customProgramCacheKey = () => 'garden_bg_leaf_std';
     bgLeafMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = u.uTime;
       shader.uniforms.uWindStrength = u.uWindStrength;
@@ -2192,7 +2244,7 @@ export class Garden {
           vLeafRand = aLeafRand;
           vCanopyShade = aCanopyShade;
           float isEvergreen = step(aLeafRand.y, 0.30);
-          float seasonScale = mix(uDecidScale, 1.0, isEvergreen);
+          float seasonScale = max(mix(uDecidScale, 1.0, isEvergreen), 0.001);
           transformed *= seasonScale;
           vec3 instP = vec3(0.0);
           #ifdef USE_INSTANCING
@@ -2208,6 +2260,7 @@ export class Garden {
         .replace(
           '#include <common>',
           `#include <common>
+          ${GLSL_SAFE_FUNCS}
           uniform vec3 uDecidA;
           uniform vec3 uDecidB;
           uniform vec3 uEvergreen;
@@ -2223,12 +2276,17 @@ export class Garden {
           float isBlossomTree = step(0.78, vLeafRand.y);
           vec3 decidCol = mix(uDecidA, uDecidB, vLeafRand.x);
           vec3 blossomCol = mix(vec3(0.95, 0.72, 0.80), vec3(0.99, 0.89, 0.93), vLeafRand.x);
-          decidCol = mix(decidCol, blossomCol, isBlossomTree * uSakuraMix);
+          decidCol = mix(decidCol, blossomCol, isBlossomTree * clamp(uSakuraMix, 0.0, 1.0));
           vec3 everCol = uEvergreen * (0.86 + 0.28 * vLeafRand.x);
           vec3 baseCol = mix(decidCol, everCol, isEvergreen) * 1.12;
           baseCol *= vCanopyShade;
           float topSnow = smoothstep(0.80, 1.05, vCanopyShade) * smoothstep(0.15, 0.85, uSnowCover);
-          diffuseColor.rgb = mix(diffuseColor.rgb * baseCol, vec3(0.91, 0.94, 0.98), topSnow * 0.72);`
+          diffuseColor.rgb = sanitizeColor(mix(diffuseColor.rgb * baseCol, vec3(0.91, 0.94, 0.98), topSnow * 0.72));`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
         );
     };
 
@@ -2314,6 +2372,7 @@ export class Garden {
     });
 
     const u = this._sharedUniforms;
+    grassMat.customProgramCacheKey = () => 'garden_grass_std';
     grassMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = u.uTime;
       shader.uniforms.uWindStrength = u.uWindStrength;
@@ -2328,6 +2387,7 @@ export class Garden {
         .replace(
           '#include <common>',
           `#include <common>
+          ${GLSL_SAFE_FUNCS}
           attribute float aBladeH;
           attribute vec2 aRand;
           uniform float uTime;
@@ -2367,8 +2427,8 @@ export class Garden {
 
           // Rotate world wind into local instance space
           #ifdef USE_INSTANCING
-            vec2 ax = normalize(vec2(instanceMatrix[0].x, instanceMatrix[0].z) + vec2(0.0001, 0.0));
-            vec2 az = normalize(vec2(instanceMatrix[2].x, instanceMatrix[2].z) + vec2(0.0, 0.0001));
+            vec2 ax = safeNormalize2(vec2(instanceMatrix[0].x, instanceMatrix[0].z), vec2(1.0, 0.0));
+            vec2 az = safeNormalize2(vec2(instanceMatrix[2].x, instanceMatrix[2].z), vec2(0.0, 1.0));
             transformed.x += dot(uWindDir, ax) * bend;
             transformed.z += dot(uWindDir, az) * bend;
           #else
@@ -2382,6 +2442,7 @@ export class Garden {
         .replace(
           '#include <common>',
           `#include <common>
+          ${GLSL_SAFE_FUNCS}
           uniform vec3 uBaseColor;
           uniform vec3 uTipColor;
           uniform float uSnowCover;
@@ -2409,12 +2470,17 @@ export class Garden {
           float snowJitter = fract(vRand.y * 7.31);
           float snowTip = smoothstep(0.18, 0.88, uSnowCover + (vBladeH - 0.3) * 0.35 + (snowJitter - 0.5) * 0.2);
           col = mix(col, vec3(0.92, 0.95, 0.99), snowTip * smoothstep(0.05, 0.65, uSnowCover));
-          diffuseColor.rgb = col;`
+          diffuseColor.rgb = sanitizeColor(col);`
         )
         .replace(
           '#include <roughnessmap_fragment>',
           `#include <roughnessmap_fragment>
-          roughnessFactor = mix(roughnessFactor, 0.36, uWetness * (1.0 - uSnowCover * 0.7));`
+          roughnessFactor = clamp(mix(roughnessFactor, 0.36, uWetness * (1.0 - uSnowCover * 0.7)), 0.08, 1.0);`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
         );
     };
 
@@ -2806,13 +2872,13 @@ export class Garden {
     porchLantern.add(lBase);
     house.add(porchLantern);
 
-    // Night PointLights (NO shadows per SPEC.md)
-    this._porchLight = new THREE.PointLight(0xffa850, 0, 12.5, 1.65);
+    // Night PointLights (NO shadows per SPEC.md — wide soft falloff so warm light reaches the dog)
+    this._porchLight = new THREE.PointLight(0xffb464, 0, 24.0, 1.15);
     this._porchLight.position.set(0.0, 2.75, wallZ + 1.65);
     this._porchLight.castShadow = false;
     this.scene.add(this._porchLight);
 
-    this._shojiSpillLight = new THREE.PointLight(0xff9c44, 0, 9.5, 1.75);
+    this._shojiSpillLight = new THREE.PointLight(0xffa852, 0, 18.0, 1.2);
     this._shojiSpillLight.position.set(-2.5, 1.6, wallZ + 1.35);
     this._shojiSpillLight.castShadow = false;
     this.scene.add(this._shojiSpillLight);
@@ -3382,13 +3448,14 @@ export class Garden {
             `#include <begin_vertex>
             vLeafRand = aLeafRand;
             vCanopyShade = aCanopyShade;
-            transformed *= uCanopyScale;
+            float safeScale = max(uCanopyScale, 0.001);
+            transformed *= safeScale;
             vec3 instP = vec3(0.0);
             #ifdef USE_INSTANCING
               instP = instanceMatrix[3].xyz;
             #endif
             float flutter = sin(uTime * (1.8 + uWindStrength * 2.4) + instP.x * 1.4 + instP.z * 1.2 + aLeafRand * 6.2831);
-            float amp = (0.035 + uWindStrength * 0.14) * uCanopyScale;
+            float amp = (0.035 + uWindStrength * 0.14) * safeScale;
             transformed.x += flutter * amp;
             transformed.y += cos(uTime * 1.5 + instP.y + aLeafRand * 6.2831) * amp * 0.55;`
           );
@@ -3398,6 +3465,7 @@ export class Garden {
             .replace(
               '#include <common>',
               `#include <common>
+              ${GLSL_SAFE_FUNCS}
               ${tintUniformA ? 'uniform vec3 uTintA; uniform vec3 uTintB;' : ''}
               varying float vLeafRand;
               varying float vCanopyShade;`
@@ -3406,7 +3474,12 @@ export class Garden {
               '#include <color_fragment>',
               `#include <color_fragment>
               ${tintUniformA ? 'vec3 seasonCol = mix(uTintA, uTintB, vLeafRand); diffuseColor.rgb *= seasonCol * 1.18;' : ''}
-              diffuseColor.rgb *= vCanopyShade;`
+              diffuseColor.rgb = sanitizeColor(diffuseColor.rgb * vCanopyShade);`
+            )
+            .replace(
+              '#include <dithering_fragment>',
+              `#include <dithering_fragment>
+              gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
             );
         }
       };
@@ -3550,6 +3623,7 @@ export class Garden {
         }
       `,
       fragmentShader: `
+        ${GLSL_SAFE_FUNCS}
         uniform float uTime;
         uniform float uWindStrength;
         uniform vec3 uSunDir;
@@ -3585,9 +3659,9 @@ export class Garden {
           }
 
           float amp = 0.045 + uWindStrength * 0.055;
-          vec3 N = normalize(vec3((r1 + r2) * amp + rr * 0.16, 1.0, (r1 - r2) * amp + rr * 0.16));
-          vec3 V = normalize(cameraPosition - vWorldPos);
-          vec3 L = normalize(uSunDir);
+          vec3 N = safeNormalize3(vec3((r1 + r2) * amp + rr * 0.16, 1.0, (r1 - r2) * amp + rr * 0.16), vec3(0.0, 1.0, 0.0));
+          vec3 V = safeNormalize3(cameraPosition - vWorldPos, vec3(0.0, 1.0, 0.0));
+          vec3 L = safeNormalize3(uSunDir, vec3(0.4, 0.7, 0.5));
 
           float fresnel = pow(max(1.0 - max(dot(N, V), 0.0), 0.0001), 3.2);
           fresnel = clamp(0.14 + fresnel * 0.82, 0.0, 0.95);
@@ -3602,17 +3676,17 @@ export class Garden {
           vec3 reflCol = uSkyColor * (0.85 + 0.25 * uSunIntensity);
           vec3 col = mix(waterBody, reflCol, fresnel);
 
-          // Sun / moon specular sparkle
-          vec3 H = normalize(L + V);
+          // Sun / moon specular sparkle (safe against L + V == 0)
+          vec3 H = safeNormalize3(L + V, N);
           float spec = pow(max(dot(N, H), 0.0001), 110.0) * (0.4 + uSunIntensity * 1.4);
-          col += uSunColor * spec;
+          col += uSunColor * clamp(spec, 0.0, 8.0);
 
           // Subtle frosty rim in snowy winter
           float frost = smoothstep(0.74, 0.98, edgeDist) * smoothstep(0.35, 0.95, uSnowCover);
           col = mix(col, vec3(0.86, 0.92, 0.97), frost * 0.65);
 
-          float alpha = mix(0.76, 0.92, fresnel) * smoothstep(1.0, 0.86, edgeDist);
-          gl_FragColor = vec4(col, alpha);
+          float alpha = clamp(mix(0.76, 0.92, fresnel) * smoothstep(1.0, 0.86, edgeDist), 0.0, 1.0);
+          gl_FragColor = vec4(sanitizeColor(col), alpha);
         }
       `,
     });
@@ -3814,7 +3888,7 @@ export class Garden {
     const tulipColors = [0xe83b4a, 0xff8ea6, 0xffd23f, 0xfff5e4, 0xf26444];
     const tulipMats = tulipColors.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.58 }));
     const tulipCupPts = [
-      new THREE.Vector2(0.0, 0.0),
+      new THREE.Vector2(0.002, 0.0),
       new THREE.Vector2(0.048, 0.025),
       new THREE.Vector2(0.056, 0.075),
       new THREE.Vector2(0.036, 0.125),
@@ -4090,8 +4164,8 @@ export class Garden {
 
       this.scene.add(g);
 
-      // Warm night PointLight (castShadow = false per SPEC.md)
-      const pt = new THREE.PointLight(0xffb15c, 0, 10.0, 1.75);
+      // Warm night PointLight (castShadow = false per SPEC.md — wide reach for dog visibility)
+      const pt = new THREE.PointLight(0xffba6b, 0, 20.0, 1.15);
       pt.position.set(lan.x, gy + lightY, lan.z);
       pt.castShadow = false;
       this.scene.add(pt);
@@ -4185,6 +4259,7 @@ export class Garden {
 
     const u = this._sharedUniforms;
     const attachShrubSway = (mat, isDepth) => {
+      mat.customProgramCacheKey = () => (isDepth ? 'garden_shrub_depth' : 'garden_shrub_std');
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uTime = u.uTime;
         shader.uniforms.uWindStrength = u.uWindStrength;
@@ -4224,6 +4299,7 @@ export class Garden {
             .replace(
               '#include <common>',
               `#include <common>
+              ${GLSL_SAFE_FUNCS}
               uniform vec3 uShrubA;
               uniform vec3 uShrubB;
               uniform float uSnowCover;
@@ -4235,7 +4311,12 @@ export class Garden {
               `#include <color_fragment>
               vec3 shCol = mix(uShrubA, uShrubB, vLeafRand) * 1.15 * vCanopyShade;
               float topSnow = smoothstep(0.80, 1.05, vCanopyShade) * smoothstep(0.12, 0.80, uSnowCover);
-              diffuseColor.rgb = mix(diffuseColor.rgb * shCol, vec3(0.92, 0.95, 0.99), topSnow * 0.78);`
+              diffuseColor.rgb = sanitizeColor(mix(diffuseColor.rgb * shCol, vec3(0.92, 0.95, 0.99), topSnow * 0.78));`
+            )
+            .replace(
+              '#include <dithering_fragment>',
+              `#include <dithering_fragment>
+              gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
             );
         }
       };
@@ -4344,6 +4425,7 @@ export class Garden {
     this._wettableMaterials.push({ mat: gLeafMat, baseRough: 0.86 });
 
     const glU = this._groundLeafUniforms;
+    gLeafMat.customProgramCacheKey = () => 'garden_ground_leaf_std';
     gLeafMat.onBeforeCompile = (shader) => {
       shader.uniforms.uLeafColA = glU.uLeafColA;
       shader.uniforms.uLeafColB = glU.uLeafColB;
@@ -4370,6 +4452,7 @@ export class Garden {
         .replace(
           '#include <common>',
           `#include <common>
+          ${GLSL_SAFE_FUNCS}
           uniform vec3 uLeafColA;
           uniform vec3 uLeafColB;
           uniform vec3 uLeafColC;
@@ -4386,11 +4469,16 @@ export class Garden {
             ? mix(uLeafColA, uLeafColB, vGLeafVar.x / 0.45)
             : mix(uLeafColB, uLeafColC, (vGLeafVar.x - 0.45) / 0.55);
           // Spring blossom petals near tree & scattered lawn
-          float isPetal = step(0.35, vGLeafVar.y) * uPetalMix;
+          float isPetal = step(0.35, vGLeafVar.y) * clamp(uPetalMix, 0.0, 1.0);
           col = mix(col, uPetalCol * (0.9 + 0.16 * vGLeafVar.x), isPetal);
           col *= mix(1.0, 0.72, uWetness);
           col = mix(col, vec3(0.91, 0.94, 0.98), smoothstep(0.12, 0.78, uSnowCover) * 0.82);
-          diffuseColor.rgb = col;`
+          diffuseColor.rgb = sanitizeColor(col);`
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+          gl_FragColor.rgb = sanitizeColor(gl_FragColor.rgb);`
         );
     };
 
@@ -4954,6 +5042,17 @@ export class Garden {
       });
     }
 
+    // Initialize particle InstancedMesh matrices to identity so no zero-determinant normalMatrix ever exists
+    const idMat = new THREE.Matrix4();
+    for (let i = 0; i < petalCount; i++) this._petalMesh.setMatrixAt(i, idMat);
+    this._petalMesh.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < leafCount; i++) this._autumnLeafMesh.setMatrixAt(i, idMat);
+    this._autumnLeafMesh.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < rainCount; i++) this._rainMesh.setMatrixAt(i, idMat);
+    this._rainMesh.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < splashCount; i++) this._splashMesh.setMatrixAt(i, idMat);
+    this._splashMesh.instanceMatrix.needsUpdate = true;
+
     // Proxy Object3D pool for public `this.fallingThings` (synchronized to live airborne petals/leaves/snow)
     this._fallingPool = [];
     for (let i = 0; i < 24; i++) {
@@ -4977,21 +5076,37 @@ export class Garden {
         ? clock.gameDtFromReal(dt)
         : dt * 30;
     const worldHoursDt = worldDt / 3600;
-    const hours = clock && typeof clock.hours === 'number' ? clock.hours : 12;
-    const dayOfYear = clock && typeof clock.dayOfYear === 'number' ? clock.dayOfYear : 100;
+    const hours = clock && Number.isFinite(clock.hours) ? clock.hours : 12;
+    const dayOfYear = clock && Number.isFinite(clock.dayOfYear) ? clock.dayOfYear : 100;
     const season = (clock && clock.season) || 'spring';
-    const weights = (clock && clock.seasonWeights) || {
+    const rawW = (clock && clock.seasonWeights) || {
       spring: season === 'spring' ? 1 : 0,
       summer: season === 'summer' ? 1 : 0,
       autumn: season === 'autumn' ? 1 : 0,
       winter: season === 'winter' ? 1 : 0,
     };
-    const sunElev = clock && typeof clock.sunElevation === 'number' ? clock.sunElevation : 0.7;
-    const sunAz = clock && typeof clock.sunAzimuth === 'number' ? clock.sunAzimuth : Math.PI;
+    const ws = clamp(rawW.spring ?? 0, 0, 1);
+    const wsu = clamp(rawW.summer ?? 0, 0, 1);
+    const wa = clamp(rawW.autumn ?? 0, 0, 1);
+    const ww = clamp(rawW.winter ?? 0, 0, 1);
+    const wSum = ws + wsu + wa + ww;
+    const weights =
+      wSum > 1e-5
+        ? { spring: ws / wSum, summer: wsu / wSum, autumn: wa / wSum, winter: ww / wSum }
+        : { spring: 1, summer: 0, autumn: 0, winter: 0 };
+
+    const sunElev = clock && Number.isFinite(clock.sunElevation) ? clock.sunElevation : 0.7;
+    const sunAz = clock && Number.isFinite(clock.sunAzimuth) ? clock.sunAzimuth : Math.PI;
     const isNight = clock && typeof clock.isNight === 'boolean' ? clock.isNight : sunElev < -0.07;
 
     this._sunElevation = sunElev;
     this._isNight = isNight;
+
+    const isFirstSync = !this._hasInitialSync;
+    if (isFirstSync) {
+      this._hasInitialSync = true;
+      this._initStateFromClock(clock, hours, dayOfYear, season, weights);
+    }
 
     // 1. Meal refill schedule (7:00 & 18:00 world time)
     this._updateFoodSchedule(clock, hours, dayOfYear);
@@ -5000,7 +5115,7 @@ export class Garden {
     this._updateWeather(dt, worldHoursDt, season, weights, sunElev);
 
     // 3. Sky, Sun, Moon, Stars, Clouds, Lights, Night Lanterns, Fog & PMREM
-    this._updateSkyAndLights(dt, hours, dayOfYear, sunElev, sunAz, isNight, weights);
+    this._updateSkyAndLights(dt, hours, dayOfYear, sunElev, sunAz, isNight, weights, isFirstSync);
 
     // 4. Seasonal flora visuals (Grass, Tree Sakura/Hazakura/Autumn/Winter, Flowerbed, Snow Caps, Wetness)
     this._updateSeasonalVisuals(dayOfYear, weights);
@@ -5025,6 +5140,56 @@ export class Garden {
 
     // 7. Falling particles (Petals, Autumn Leaves, Snow, Rain + Splashes)
     this._updateParticles(dt, dayOfYear, weights);
+  }
+
+  _initStateFromClock(clock, hours, dayOfYear, season, weights) {
+    // Deterministic per-date seed so initial seasonal state is natural & reproducible
+    const year = clock && clock.date ? clock.date.getFullYear() : 2026;
+    const seed = ((year * 409) + (Math.floor(dayOfYear) * 17) + Math.floor(hours / 6)) >>> 0;
+    const rand = mulberry32(seed ^ 0x51a7b3c9);
+    const rWeather = rand();
+    const rSnow = rand();
+
+    if (season === 'winter' || weights.winter > 0.35) {
+      // Mid-winter (late Dec - late Feb) usually starts with a snowy yard!
+      const isDeepWinter = dayOfYear <= 52 || dayOfYear >= 348;
+      const winterFactor = clamp(weights.winter * (isDeepWinter ? 1.0 : 0.72), 0, 1);
+
+      if (weights.winter >= 0.5 && rWeather < 0.38) {
+        this.weather = 'snow';
+        this._targetWeather = 'snow';
+        this.weatherIntensity = 0.74;
+        this.snowCover = clamp(winterFactor * (0.68 + rSnow * 0.18), 0.35, 0.88);
+        this.wetness = 0.22;
+      } else if (rWeather < 0.62) {
+        this.weather = 'cloudy';
+        this._targetWeather = 'cloudy';
+        this.weatherIntensity = 0.52;
+        this.snowCover = clamp(winterFactor * (0.60 + rSnow * 0.16), 0.2, 0.82);
+        this.wetness = 0.16;
+      } else {
+        this.weather = 'clear';
+        this._targetWeather = 'clear';
+        this.weatherIntensity = 0.0;
+        // Crisp sunny winter day with lingering snow blanket on ground, roof & branches
+        this.snowCover = clamp(winterFactor * (0.56 + rSnow * 0.18), 0.18, 0.78);
+        this.wetness = 0.10;
+      }
+    } else {
+      // Non-winter: start clear (with gentle morning dew at dawn)
+      this.weather = 'clear';
+      this._targetWeather = 'clear';
+      this.weatherIntensity = 0.0;
+      this.snowCover = 0.0;
+      this.wetness = hours >= 5.0 && hours <= 8.5 ? 0.16 : 0.0;
+    }
+
+    blendSeasonColor(this._sharedUniforms.uGrassBaseColor.value, SEASON_COLORS.grassBase, weights);
+    blendSeasonColor(this._sharedUniforms.uGrassTipColor.value, SEASON_COLORS.grassTip, weights);
+    blendSeasonColor(this._sharedUniforms.uGroundColor.value, SEASON_COLORS.groundBase, weights);
+    this._sharedUniforms.uWetness.value = this.wetness;
+    this._sharedUniforms.uSnowCover.value = this.snowCover;
+    this._sharedUniforms.uRainIntensity.value = this.weather === 'rain' ? this.weatherIntensity : 0.0;
   }
 
   _updateFoodSchedule(clock, hours, dayOfYear) {
@@ -5112,9 +5277,9 @@ export class Garden {
     if (this.weather === 'snow') {
       this.snowCover = clamp(this.snowCover + dt * 0.03 * this.weatherIntensity, 0, 1);
     } else {
-      const warmFactor = 1.0 - weights.winter * 0.78;
+      const warmFactor = 1.0 - weights.winter * 0.88;
       const rainMelt = this.weather === 'rain' ? 0.04 : 0.0;
-      const meltRate = (0.003 + sunDryBoost * 0.012) * warmFactor + rainMelt;
+      const meltRate = (0.002 + sunDryBoost * 0.01) * warmFactor + rainMelt;
       this.snowCover = clamp(this.snowCover - dt * meltRate, 0, 1);
     }
 
@@ -5141,29 +5306,38 @@ export class Garden {
     const windAng = 0.55 + 0.38 * Math.sin(t * 0.07);
     this._sharedUniforms.uWindStrength.value = this.windStrength;
     this._sharedUniforms.uWindDir.value.set(Math.cos(windAng), Math.sin(windAng));
+    blendSeasonColor(this._sharedUniforms.uGrassBaseColor.value, SEASON_COLORS.grassBase, weights);
+    blendSeasonColor(this._sharedUniforms.uGrassTipColor.value, SEASON_COLORS.grassTip, weights);
+    blendSeasonColor(this._sharedUniforms.uGroundColor.value, SEASON_COLORS.groundBase, weights);
     this._sharedUniforms.uWetness.value = this.wetness;
     this._sharedUniforms.uSnowCover.value = this.snowCover;
     this._sharedUniforms.uRainIntensity.value = this.weather === 'rain' ? this.weatherIntensity : 0.0;
   }
 
-  _updateSkyAndLights(dt, hours, dayOfYear, sunElev, sunAz, isNight, weights) {
+  _updateSkyAndLights(dt, hours, dayOfYear, sunElev, sunAz, isNight, weights, forcePMREM = false) {
     // Convert spherical sunElevation & sunAzimuth (North = -Z, East = +X, South = +Z)
-    const cosEl = Math.cos(sunElev);
+    const safeElev = clamp(sunElev, -Math.PI * 0.49, Math.PI * 0.49);
+    const safeAz = Number.isFinite(sunAz) ? sunAz : Math.PI;
+    const cosEl = Math.cos(safeElev);
     this._sunDir.set(
-      cosEl * Math.sin(sunAz),
-      Math.sin(sunElev),
-      -cosEl * Math.cos(sunAz)
-    ).normalize();
+      cosEl * Math.sin(safeAz),
+      Math.sin(safeElev),
+      -cosEl * Math.cos(safeAz)
+    );
+    if (this._sunDir.lengthSq() < 1e-6) this._sunDir.set(0.4, 0.7, 0.5);
+    this._sunDir.normalize();
     this._sharedUniforms.uSunDir.value.copy(this._sunDir);
 
     // Moon follows a gently shifted nocturnal arc opposite the sun
-    const moonElev = Math.max(-0.2, -sunElev * 0.85 + 0.22);
-    const moonAz = sunAz + Math.PI + (dayOfYear % 29.5) * 0.04;
+    const moonElev = clamp(-safeElev * 0.85 + 0.34, -0.2, 1.25);
+    const moonAz = safeAz + Math.PI + (dayOfYear % 29.5) * 0.04;
     this._moonDir.set(
       Math.cos(moonElev) * Math.sin(moonAz),
       Math.sin(moonElev),
       -Math.cos(moonElev) * Math.cos(moonAz)
-    ).normalize();
+    );
+    if (this._moonDir.lengthSq() < 1e-6) this._moonDir.set(-0.4, 0.6, -0.5);
+    this._moonDir.normalize();
 
     const cloudCover =
       this.weather === 'clear'
@@ -5173,9 +5347,9 @@ export class Garden {
           : lerp(0.35, 0.94, this.weatherIntensity);
 
     // Twilight / Day / Night continuous factors
-    const dayFactor = smoothstep(-0.08, 0.22, sunElev);
-    const nightFactor = 1.0 - smoothstep(-0.14, 0.06, sunElev);
-    const goldenFactor = Math.exp(-Math.pow((sunElev - 0.04) / 0.14, 2.0));
+    const dayFactor = smoothstep(-0.08, 0.22, safeElev);
+    const nightFactor = 1.0 - smoothstep(-0.14, 0.06, safeElev);
+    const goldenFactor = Math.exp(-Math.pow((safeElev - 0.04) / 0.14, 2.0));
 
     // Update Three.js Sky uniforms
     const skyU = this._sky.material.uniforms;
@@ -5186,17 +5360,17 @@ export class Garden {
     skyU.mieDirectionalG.value = lerp(0.82, 0.91, goldenFactor);
 
     // Night sky indigo dome & stars
-    this._nightSkyMat.uniforms.uOpacity.value = nightFactor * 0.96;
+    this._nightSkyMat.uniforms.uOpacity.value = nightFactor * 0.94;
     const starVis = nightFactor * clamp(1.0 - cloudCover * 1.05, 0.0, 1.0);
     this._starMat.uniforms.uOpacity.value = starVis;
     this._stars.visible = starVis > 0.01;
     this._stars.rotation.y = this._elapsed * 0.0012;
 
     // Moon positioning & visibility
-    const moonVis = smoothstep(-0.02, 0.12, this._moonDir.y) * smoothstep(0.18, -0.05, sunElev) * clamp(1.0 - cloudCover * 0.85, 0.1, 1.0);
+    const moonVis = smoothstep(-0.02, 0.12, this._moonDir.y) * smoothstep(0.18, -0.05, safeElev) * clamp(1.0 - cloudCover * 0.85, 0.1, 1.0);
     this._moonGroup.position.copy(this._moonDir).multiplyScalar(320);
-    this._moonMat.opacity = moonVis * 0.95;
-    this._moonHaloMat.opacity = moonVis * 0.42;
+    this._moonMat.opacity = moonVis * 0.96;
+    this._moonHaloMat.opacity = moonVis * 0.48;
     this._moonGroup.visible = moonVis > 0.01;
 
     // Overcast atmospheric veil
@@ -5207,8 +5381,8 @@ export class Garden {
           ? this.weatherIntensity * 0.48
           : this.weatherIntensity * 0.78;
     this._overcastMat.uniforms.uOpacity.value = overcastStrength;
-    const ovTop = this._tmpColor.set('#647282').lerp(this._tmpColor2.set('#141c2c'), nightFactor);
-    const ovHor = this._tmpColor3.set('#9ca7b4').lerp(this._tmpColor2.set('#1f2a3e'), nightFactor);
+    const ovTop = this._tmpColor.set('#647282').lerp(this._tmpColor2.set('#1c2840'), nightFactor);
+    const ovHor = this._tmpColor3.set('#9ca7b4').lerp(this._tmpColor2.set('#2c3c5a'), nightFactor);
     if (this.weather === 'snow') {
       ovTop.lerp(this._tmpColor2.set('#96a4b5'), 0.4 * (1 - nightFactor));
       ovHor.lerp(this._tmpColor2.set('#cfd9e5'), 0.5 * (1 - nightFactor));
@@ -5221,11 +5395,11 @@ export class Garden {
     const cloudBright = this._tmpColor
       .set('#ffffff')
       .lerp(this._tmpColor2.set('#ffbe88'), goldenFactor * 0.75)
-      .lerp(this._tmpColor2.set('#30405c'), nightFactor * 0.88);
+      .lerp(this._tmpColor2.set('#3f5478'), nightFactor * 0.86);
     const cloudShadow = this._tmpColor3
       .set('#a8bdd2')
       .lerp(this._tmpColor2.set('#7a5b6e'), goldenFactor * 0.65)
-      .lerp(this._tmpColor2.set('#131b2b'), nightFactor * 0.92);
+      .lerp(this._tmpColor2.set('#1b263d'), nightFactor * 0.90);
     if (this.weather === 'rain') {
       cloudBright.multiplyScalar(0.68);
       cloudShadow.multiplyScalar(0.58);
@@ -5238,17 +5412,17 @@ export class Garden {
       .multiplyScalar(1.0 - nightFactor * 0.85);
     this._cloudMat.uniforms.uOpacity.value = lerp(0.75, 0.95, cloudCover);
 
-    // Key Directional Light (Sun in daytime, Moon at night, seamless shadow handoff)
+    // Key Directional Light (Sun in daytime, pale silver-blue Moon at night with shadows — always keeps dog visible)
     const weatherDim =
       this.weather === 'clear'
         ? 1.0
         : this.weather === 'cloudy'
-          ? lerp(1.0, 0.52, this.weatherIntensity)
-          : lerp(1.0, 0.34, this.weatherIntensity);
+          ? lerp(1.0, 0.55, this.weatherIntensity)
+          : lerp(1.0, 0.38, this.weatherIntensity);
 
-    if (sunElev >= -0.04) {
-      // Sun drives key light
-      const sunPitch = Math.max(0.11, this._sunDir.y);
+    if (safeElev >= -0.03) {
+      // Sun drives key light (no dark dip at dusk!)
+      const sunPitch = Math.max(0.14, this._sunDir.y);
       this._keyLight.position.set(
         this._sunDir.x * 38,
         sunPitch * 38,
@@ -5256,60 +5430,62 @@ export class Garden {
       );
       this._keyLight.color
         .set('#fff6e8')
-        .lerp(this._tmpColor.set('#ff9b4e'), goldenFactor * 0.82)
+        .lerp(this._tmpColor.set('#ff9f58'), goldenFactor * 0.78)
         .lerp(this._tmpColor.set('#d2dde8'), (1 - weatherDim) * 0.55);
-      this._keyLight.intensity = lerp(0.12, 3.1, dayFactor) * weatherDim;
+      this._keyLight.intensity = lerp(0.72, 3.1, dayFactor) * weatherDim;
     } else {
-      // Moon drives soft silver-blue nocturnal shadows
-      const moonPitch = Math.max(0.22, this._moonDir.y);
+      // Moon drives crisp pale-blue nocturnal key light + shadows so dog coat & silhouette read clearly
+      const moonPitch = Math.max(0.38, this._moonDir.y);
       this._keyLight.position.set(
         this._moonDir.x * 36,
         moonPitch * 36,
         this._moonDir.z * 36 - 1
       );
-      this._keyLight.color.set('#8cb2e8');
-      this._keyLight.intensity = 0.42 * (1.0 - cloudCover * 0.65);
+      this._keyLight.color.set('#b0cef8');
+      const fullMoonBlend = smoothstep(-0.03, -0.11, safeElev);
+      this._keyLight.intensity = lerp(0.74, 1.25, fullMoonBlend) * lerp(1.0, 0.68, cloudCover);
     }
 
-    // Hemisphere Sky & Ground Bounce
+    // Hemisphere Sky & Ground Bounce (cool moonlit ambient at night so dog coat color is never crushed to black)
     const skyBounce = this._tmpColor
       .set('#8fc2f2')
-      .lerp(this._tmpColor2.set('#e89f7c'), goldenFactor * 0.65)
-      .lerp(this._tmpColor2.set('#7a8796'), (1 - weatherDim) * 0.65)
-      .lerp(this._tmpColor2.set('#1f3154'), nightFactor * 0.92);
+      .lerp(this._tmpColor2.set('#e8a280'), goldenFactor * 0.62)
+      .lerp(this._tmpColor2.set('#7a8796'), (1 - weatherDim) * 0.60)
+      .lerp(this._tmpColor2.set('#5478b0'), nightFactor * 0.90);
 
     const groundBounce = blendSeasonColor(this._tmpColor2, SEASON_COLORS.groundBase, weights)
       .lerp(this._tmpColor3.set('#c4d0de'), this.snowCover * 0.78)
-      .multiplyScalar(lerp(0.25, 0.92, dayFactor));
+      .lerp(this._tmpColor3.set('#4c5e78'), nightFactor * 0.52)
+      .multiplyScalar(lerp(0.68, 0.92, dayFactor));
 
     this._hemiLight.color.copy(skyBounce);
     this._hemiLight.groundColor.copy(groundBounce);
-    this._hemiLight.intensity = lerp(0.32, 0.78, dayFactor) * lerp(0.72, 1.0, weatherDim);
+    this._hemiLight.intensity = lerp(0.82, 0.85, dayFactor) * lerp(0.78, 1.0, weatherDim);
 
     // Sync shared shader uniforms for grass & pond water
     this._sharedUniforms.uSunColor.value.copy(this._keyLight.color);
     this._sharedUniforms.uSkyColor.value.copy(skyBounce);
-    this._sharedUniforms.uSunIntensity.value = clamp(dayFactor * weatherDim, 0.0, 1.0);
+    this._sharedUniforms.uSunIntensity.value = clamp(lerp(0.22, 1.0, dayFactor) * weatherDim, 0.0, 1.0);
 
-    // PMREM environment intensity modulation
+    // PMREM environment intensity modulation (retains soft nocturnal skylight reflection on fur & eyes)
     if (this.scene.environment) {
-      this.scene.environmentIntensity = lerp(0.28, 0.85, dayFactor) * lerp(0.6, 1.0, weatherDim);
+      this.scene.environmentIntensity = lerp(0.62, 0.85, dayFactor) * lerp(0.72, 1.0, weatherDim);
     }
 
-    // Nighttime Warm Lights: Engawa Hanging Lantern, Shoji Warm Glow, & Garden Stone Lanterns
-    const lanternOn = smoothstep(0.11, -0.05, sunElev);
-    const flicker1 = 0.95 + 0.05 * Math.sin(this._elapsed * 5.7) * Math.cos(this._elapsed * 3.1);
-    const flicker2 = 0.95 + 0.05 * Math.sin(this._elapsed * 6.3 + 1.9);
+    // Nighttime Warm Lights: Engawa Hanging Lantern, Shoji Warm Glow, & Garden Stone Lanterns (reaching the dog)
+    const lanternOn = smoothstep(0.14, -0.04, safeElev);
+    const flicker1 = 0.96 + 0.04 * Math.sin(this._elapsed * 5.7) * Math.cos(this._elapsed * 3.1);
+    const flicker2 = 0.96 + 0.04 * Math.sin(this._elapsed * 6.3 + 1.9);
 
-    this._shojiMat.emissiveIntensity = lanternOn * 0.82;
-    this._porchLanternGlowMat.emissiveIntensity = lanternOn * 1.75 * flicker1;
-    this._porchLight.intensity = lanternOn * 3.4 * flicker1;
-    this._shojiSpillLight.intensity = lanternOn * 1.9;
+    this._shojiMat.emissiveIntensity = lanternOn * 0.95;
+    this._porchLanternGlowMat.emissiveIntensity = lanternOn * 1.9 * flicker1;
+    this._porchLight.intensity = lanternOn * 8.5 * flicker1;
+    this._shojiSpillLight.intensity = lanternOn * 4.8;
 
     for (let i = 0; i < this._gardenLanternLights.length; i++) {
       const fl = i === 0 ? flicker1 : flicker2;
-      this._gardenLanternLights[i].intensity = lanternOn * 2.8 * fl;
-      this._gardenLanternGlowMats[i].emissiveIntensity = lanternOn * 1.85 * fl;
+      this._gardenLanternLights[i].intensity = lanternOn * 6.8 * fl;
+      this._gardenLanternGlowMats[i].emissiveIntensity = lanternOn * 2.0 * fl;
     }
 
     // Atmospheric Fog (synced to horizon, time-of-day & weather)
@@ -5317,9 +5493,9 @@ export class Garden {
       .set('#c4dcf0')
       .lerp(this._tmpColor2.set('#e8a882'), goldenFactor * 0.72)
       .lerp(this._tmpColor2.set('#8f9aa6'), (1 - weatherDim) * 0.72)
-      .lerp(this._tmpColor2.set('#10192b'), nightFactor * 0.94);
+      .lerp(this._tmpColor2.set('#1a2844'), nightFactor * 0.90);
     if (this.weather === 'snow') {
-      fogCol.lerp(this._tmpColor2.set(isNight ? '#283448' : '#d5e0ec'), this.weatherIntensity * 0.65);
+      fogCol.lerp(this._tmpColor2.set(isNight ? '#344662' : '#d5e0ec'), this.weatherIntensity * 0.65);
     }
     this._fog.color.copy(fogCol);
 
@@ -5333,8 +5509,8 @@ export class Garden {
             : lerp(0.006, 0.0185, this.weatherIntensity);
     this._fog.density = lerp(this._fog.density, targetFogDensity, Math.min(1, dt * 1.5));
 
-    // Throttled PMREM sky environment reflection update
-    this._updatePMREM(false);
+    // PMREM sky environment reflection update (always forced on initial clock sync!)
+    this._updatePMREM(forcePMREM);
   }
 
   _updateSeasonalVisuals(dayOfYear, weights) {
