@@ -1,0 +1,10 @@
+コマンドは一切実行せず、Web調査とファイル編集のみで8件を順次追記し、[dog_models.md](file:///home/user/dog_kansatsu_claude/notes/dog_models.md) に保存しました。
+
+### 調査結果サマリー（全8件）
+- **アニメーション付き（CC0 1.0・3件）**: ハスキー（Quaternius）、柴犬（Quaternius）、柴犬・動作拡張版（Quaternius / lhns 改変：`sitting` / `lying down` / `sleeping` / `wagging tail` / `breathing` 等を追加、`raw.githubusercontent.com` 直リンク）
+- **静止モデル（CC-BY 3.0・5件）**: ビーグル（Poly by Google）、コーギー（madtrollstudio）、プードル（Poly by Google）、犬・汎用（Poly by Google）、柴犬・別造形（Pat Siefring）
+- **GitHub Rawミラー**: #1 ハスキー・#2 柴犬は `static.poly.pizza` に加え `trebeljahr/quaternius-showcase` の `raw.githubusercontent.com` 直リンクも [dog_models.md](file:///home/user/dog_kansatsu_claude/notes/dog_models.md#L15-L17) に併記しています。
+
+### リアルさについての補足
+- **CC0 / CC-BY かつログイン不要の直接DL URL** を満たし実在確認できた glTF/GLB 犬モデルは、いずれもローポリ寄り（リアルさ 2/5）でした。
+- リアル寄り（4〜5/5）の CC-BY アニメ付き犬モデルは Sketchfab（DLにログイン必須）や Blender Studio *Project Dogwalk*（生アセットはサブスクリプション必須）に偏っているため、条件に従って除外しています。詳細は [dog_models.md](file:///home/user/dog_kansatsu_claude/notes/dog_models.md#L18-L21) にまとめています。
