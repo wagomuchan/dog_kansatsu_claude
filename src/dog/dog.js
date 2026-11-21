@@ -25,8 +25,24 @@ function isObject3D(obj) {
 
 function getGroundY(garden, x, z) {
   if (garden && typeof garden.getGroundHeight === 'function') {
-    const y = garden.getGroundHeight(x, z);
-    if (Number.isFinite(y)) return y;
+    let y = garden.getGroundHeight(x, z);
+    if (Number.isFinite(y)) {
+      // 犬小屋の床とクッションの上にのる
+      const s = garden.doghouseSurface;
+      if (s) {
+        const dx = x - s.x, dz = z - s.z;
+        const c = Math.cos(s.rotY), sn = Math.sin(s.rotY);
+        const lx = dx * c - dz * sn;
+        const lz = dx * sn + dz * c;
+        if (Math.abs(lx) < s.floorHalfW && Math.abs(lz - s.floorCz) < s.floorHalfD) y = Math.max(y, s.floorTop);
+        const e = Math.hypot(lx / s.cushionRx, (lz - s.cushionCz) / s.cushionRz);
+        if (e < 1) {
+          const k = Math.min(1, (1 - e) / 0.25); // ふちはなだらかに
+          y = Math.max(y, s.floorTop + (s.cushionTop - s.floorTop) * k);
+        }
+      }
+      return y;
+    }
   }
   return 0;
 }

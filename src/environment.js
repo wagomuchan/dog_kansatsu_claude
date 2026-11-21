@@ -3152,6 +3152,12 @@ export class Garden {
     cushion.position.set(0, 0.15, -0.08);
     cushion.receiveShadow = true;
     group.add(cushion);
+    // 犬が床やクッションに埋もれないよう、上面の高さを記録しておく（dog.js が使う）
+    this.doghouseSurface = {
+      x: dh.x, z: dh.z, rotY: dh.rotY,
+      floorHalfW: (w + 0.14) * 0.5, floorHalfD: (d + 0.24) * 0.5, floorCz: 0.06, floorTop: gy + 0.11,
+      cushionCz: -0.08, cushionRx: 0.56, cushionRz: 0.56 * 1.15, cushionTop: gy + 0.19,
+    };
 
     // Cute bone nameplate above doorway
     const boneMat = new THREE.MeshStandardMaterial({ color: 0xf4ead4, roughness: 0.7 });
