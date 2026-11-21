@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="庭で気ままに暮らす一匹の犬を静かに見守る観察サイト" />
+  <title>庭の犬観察</title>
+  <link
+    rel="icon"
+    type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%233d5a45'/%3E%3Cellipse cx='32' cy='41' rx='11' ry='9' fill='%23f6f1e6'/%3E%3Ccircle cx='18' cy='29' r='5' fill='%23f6f1e6'/%3E%3Ccircle cx='27' cy='21' r='5.2' fill='%23f6f1e6'/%3E%3Ccircle cx='37' cy='21' r='5.2' fill='%23f6f1e6'/%3E%3Ccircle cx='46' cy='29' r='5' fill='%23f6f1e6'/%3E%3C/svg%3E"
+  />
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">{"imports":{
+    "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+  <div id="app">
+    <div id="viewport" aria-label="庭の犬の観察画面"></div>
+
+    <div id="hud" aria-live="polite">
+      <div class="hud-top-left">
+        <div class="glass-panel clock-panel" role="status">
+          <span id="clock-text" class="clock-text">----年--月--日（-） --:--</span>
+          <span class="panel-divider" aria-hidden="true"></span>
+          <span id="weather-badge" class="weather-badge">
+            <span id="season-text" class="season-text">春</span>
+            <span id="weather-icon" class="weather-icon" aria-label="天気">☀</span>
+          </span>
+        </div>
+
+        <div class="glass-panel action-panel">
+          <span class="action-dot" aria-hidden="true"></span>
+          <span class="action-prefix">いま:</span>
+          <span id="action-text" class="action-text">のんびりしています</span>
+        </div>
+      </div>
+
+      <div class="hud-top-right">
+        <button
+          id="sound-btn"
+          class="glass-panel sound-btn"
+          type="button"
+          aria-pressed="false"
+          aria-label="音を出す"
+          title="音を出す"
+        >
+          <span id="sound-icon" class="sound-icon" aria-hidden="true">🔇</span>
+        </button>
+      </div>
+
+      <div class="hud-bottom-right">
+        <label class="glass-panel breed-panel" for="breed-select">
+          <span class="breed-label">犬種</span>
+          <select id="breed-select" class="breed-select" aria-label="犬種を選ぶ"></select>
+        </label>
+      </div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay" role="status" aria-live="assertive">
+      <div class="loading-card">
+        <div class="loading-spinner" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <p id="loading-message" class="loading-message">庭の準備をしています…</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+以下の7ファイルを SPEC.md の設計どおりに作成しました。
+- [src/time.js](file:///home/user/dog_kansatsu_claude/src/time.js): 30倍速の世界時計・季節境界の前後10日スムースブレンド・北緯35度ベースの太陽高度/方位角と夜間判定を実装。
+- [src/camera.js](file:///home/user/dog_kansatsu_claude/src/camera.js): 臨界減衰ばねによる滑らかな追従、行動に応じた距離・高さ調整、数十秒ごとのアングル切替、犬小屋入口優先と柵・家・木・地面の回避を実装。
+- [src/audio.js](file:///home/user/dog_kansatsu_claude/src/audio.js): 風・葉擦れ・雨・水滴・スズメ/ウグイス・セミ・コオロギ/鈴虫を季節時刻で変化させ、犬の全イベント音を距離減衰と視線基準パンで合成。
+- [index.html](file:///home/user/dog_kansatsu_claude/index.html) / [style.css](file:///home/user/dog_kansatsu_claude/style.css) / [src/ui.js](file:///home/user/dog_kansatsu_claude/src/ui.js) / [src/main.js](file:///home/user/dog_kansatsu_claude/src/main.js): ACESFilmic＋HDR MSAA＋弱めBloom＋OutputPassの高画質パイプライン、昼夜で馴染む半透明ガラスUI、安全領域対応レスポンシブ、犬種保存と滑らかな読み込み遷移を構築。
