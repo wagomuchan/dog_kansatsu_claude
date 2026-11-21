@@ -1871,7 +1871,7 @@ export class Garden {
       if (pd < 1.25) heightBoost += 0.45;
       if (Math.hypot(x - L.treePos.x, z - L.treePos.z) < 2.0) heightBoost += 0.22;
 
-      const sY = (0.62 + rand() * 0.78) * heightBoost;
+      const sY = (0.32 + rand() * 0.4) * heightBoost; // 犬が埋もれないよう短めに刈る
       const sXZ = 0.8 + rand() * 0.65;
 
       this._dummy.position.set(x, y - 0.015, z);

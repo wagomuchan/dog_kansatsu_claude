@@ -21,7 +21,10 @@ function dayIndexInYear(year, monthIndex, dayOfMonth) {
 export class WorldClock {
   constructor(speed = 30) {
     this.speed = speed;
-    this._timeMs = Date.now();
+    // ?t=2026-05-01T13:00 で開始時刻を指定できる（確認用）
+    let start = Date.now();
+    try { const t = new URLSearchParams(location.search).get('t'); if (t && !isNaN(Date.parse(t))) start = Date.parse(t); } catch (e) {}
+    this._timeMs = start;
 
     this.date = new Date(this._timeMs);
     this.hours = 0;

@@ -206,6 +206,8 @@ function init() {
     wireDogEvents(dog, soundscape);
 
     const followCamera = new FollowCamera(camera, garden);
+    // 確認用: ?debug をつけると中身をのぞける
+    if (location.search.includes('debug')) window.__app = { camera, followCamera, clock, garden, getDog: () => dog };
 
     // リサイズ対応
     const onResize = () => {
