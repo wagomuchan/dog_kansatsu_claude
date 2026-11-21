@@ -391,103 +391,371 @@ function makeSakuraBarkTextures(anisotropy = 4) {
   };
 }
 
+function makeFenceWoodTextures(anisotropy = 4, seed = 109) {
+  const rand = mulberry32(seed);
+  const w = 256;
+  const h = 512;
+  const cColor = createCanvas(w, h);
+  const ctx = cColor.getContext('2d');
+  const cBump = createCanvas(w, h);
+  const bCtx = cBump.getContext('2d');
+
+  // Vertical weathered cedar board base
+  const baseGrad = ctx.createLinearGradient(0, 0, w, 0);
+  baseGrad.addColorStop(0.0, '#725238');
+  baseGrad.addColorStop(0.5, '#815e41');
+  baseGrad.addColorStop(1.0, '#6a4b32');
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, w, h);
+  bCtx.fillStyle = '#808080';
+  bCtx.fillRect(0, 0, w, h);
+
+  // Vertical wood grain fibers (runs top to bottom on vertical slats)
+  for (let i = 0; i < 240; i++) {
+    const fx = rand() * w;
+    const alpha = 0.05 + rand() * 0.14;
+    ctx.strokeStyle = rand() > 0.35 ? '#3c2616' : '#9c7856';
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 0.8 + rand() * 2.2;
+    ctx.beginPath();
+    ctx.moveTo(fx, 0);
+    const wave = (rand() - 0.5) * 10;
+    ctx.bezierCurveTo(fx + wave, h * 0.33, fx - wave, h * 0.66, fx + (rand() - 0.5) * 4, h);
+    ctx.stroke();
+
+    bCtx.strokeStyle = rand() > 0.5 ? '#a2a2a2' : '#5c5c5c';
+    bCtx.globalAlpha = alpha * 1.15;
+    bCtx.lineWidth = 1.1;
+    bCtx.beginPath();
+    bCtx.moveTo(fx, 0);
+    bCtx.lineTo(fx + (rand() - 0.5) * 4, h);
+    bCtx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  bCtx.globalAlpha = 1;
+
+  // Sun-bleached weathered silver-gray patches
+  for (let i = 0; i < 14; i++) {
+    const wx = rand() * w;
+    const wy = h * (0.12 + rand() * 0.62);
+    const rx = 18 + rand() * 44;
+    const ry = 40 + rand() * 95;
+    const wg = ctx.createRadialGradient(wx, wy, 2, wx, wy, ry);
+    wg.addColorStop(0, 'rgba(138, 132, 122, 0.24)');
+    wg.addColorStop(1, 'rgba(138, 132, 122, 0)');
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    ctx.ellipse(wx, wy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Occasional small wood knots
+  for (let k = 0; k < 2; k++) {
+    const kx = 36 + rand() * (w - 72);
+    const ky = 70 + rand() * (h - 160);
+    const kr = 5 + rand() * 7;
+    const kg = ctx.createRadialGradient(kx, ky, 1, kx, ky, kr * 2.1);
+    kg.addColorStop(0, 'rgba(32,19,10,0.68)');
+    kg.addColorStop(0.55, 'rgba(54,34,19,0.32)');
+    kg.addColorStop(1, 'rgba(54,34,19,0)');
+    ctx.fillStyle = kg;
+    ctx.beginPath();
+    ctx.ellipse(kx, ky, kr * 0.9, kr * 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Top cap-rail shadow & vertical rain-drip streaks (y near 0 = top of slat)
+  const topShade = ctx.createLinearGradient(0, 0, 0, h * 0.14);
+  topShade.addColorStop(0, 'rgba(26, 20, 14, 0.42)');
+  topShade.addColorStop(0.5, 'rgba(34, 26, 18, 0.14)');
+  topShade.addColorStop(1, 'rgba(34, 26, 18, 0)');
+  ctx.fillStyle = topShade;
+  ctx.fillRect(0, 0, w, h * 0.14);
+
+  for (let d = 0; d < 18; d++) {
+    const dx = rand() * w;
+    const len = h * (0.08 + rand() * 0.24);
+    const dw = 3 + rand() * 9;
+    const dg = ctx.createLinearGradient(0, 0, 0, len);
+    dg.addColorStop(0, 'rgba(30, 24, 18, 0.28)');
+    dg.addColorStop(1, 'rgba(30, 24, 18, 0)');
+    ctx.fillStyle = dg;
+    ctx.fillRect(dx, 0, dw, len);
+  }
+
+  // Faint dark nail / rail rust streaks around crossbar heights
+  for (const ryNorm of [0.22, 0.78]) {
+    const ry = h * ryNorm;
+    const rg = ctx.createLinearGradient(0, ry - 10, 0, ry + 26);
+    rg.addColorStop(0, 'rgba(28, 20, 14, 0)');
+    rg.addColorStop(0.35, 'rgba(32, 22, 15, 0.18)');
+    rg.addColorStop(1, 'rgba(32, 22, 15, 0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, ry - 10, w, 36);
+  }
+
+  // Bottom mud/rain splash & damp moss weathering (y near h = bottom of slat touching soil)
+  const botGrad = ctx.createLinearGradient(0, h * 0.74, 0, h);
+  botGrad.addColorStop(0, 'rgba(42, 34, 24, 0)');
+  botGrad.addColorStop(0.55, 'rgba(44, 36, 24, 0.28)');
+  botGrad.addColorStop(1, 'rgba(34, 29, 19, 0.62)');
+  ctx.fillStyle = botGrad;
+  ctx.fillRect(0, h * 0.74, w, h * 0.26);
+
+  // Subtle green moss / algae creeping up bottom 15%
+  for (let m = 0; m < 22; m++) {
+    const mx = rand() * w;
+    const my = h * (0.84 + rand() * 0.16);
+    const mr = 10 + rand() * 26;
+    const mg = ctx.createRadialGradient(mx, my, 1, mx, my, mr);
+    mg.addColorStop(0, 'rgba(58, 74, 38, 0.36)');
+    mg.addColorStop(1, 'rgba(58, 74, 38, 0)');
+    ctx.fillStyle = mg;
+    ctx.beginPath();
+    ctx.ellipse(mx, my, mr * 0.85, mr * 1.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Irregular soil-splash speckles near the ground line
+  for (let s = 0; s < 320; s++) {
+    const sx = rand() * w;
+    const sy = h * (0.72 + Math.pow(rand(), 0.65) * 0.28);
+    const sr = 0.8 + rand() * 3.4;
+    ctx.fillStyle = rand() > 0.3 ? 'rgba(46, 36, 24, 0.32)' : 'rgba(62, 72, 42, 0.26)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+    bCtx.fillStyle = 'rgba(165,165,165,0.22)';
+    bCtx.beginPath();
+    bCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+    bCtx.fill();
+  }
+
+  // Subtle board edge darkening
+  ctx.fillStyle = 'rgba(22, 14, 8, 0.35)';
+  ctx.fillRect(0, 0, 4, h);
+  ctx.fillRect(w - 4, 0, 4, h);
+
+  return {
+    map: finalizeTexture(cColor, { repeatX: 1, repeatY: 1, srgb: true, anisotropy }),
+    bumpMap: finalizeTexture(cBump, { repeatX: 1, repeatY: 1, srgb: false, anisotropy }),
+  };
+}
+
 function makeFoliageClusterTexture(isSakura = false, anisotropy = 4) {
   const rand = mulberry32(isSakura ? 707 : 708);
-  const s = 256;
+  const s = 512;
   const c = createCanvas(s, s);
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, s, s);
 
+  // Fine branching woody twigs anchoring the sprig
+  ctx.strokeStyle = isSakura ? 'rgba(68, 48, 42, 0.85)' : 'rgba(58, 46, 36, 0.78)';
+  ctx.lineCap = 'round';
+  const cx0 = s * 0.5;
+  const cy0 = s * 0.56;
+  for (let t = 0; t < 7; t++) {
+    const a = (t / 7) * Math.PI * 2 + (rand() - 0.5) * 0.45;
+    const len = 85 + rand() * 90;
+    ctx.lineWidth = 3.5 + rand() * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx0, cy0);
+    const mx = cx0 + Math.cos(a + 0.18) * len * 0.55;
+    const my = cy0 + Math.sin(a + 0.18) * len * 0.55;
+    const ex = cx0 + Math.cos(a) * len;
+    const ey = cy0 + Math.sin(a) * len;
+    ctx.quadraticCurveTo(mx, my, ex, ey);
+    ctx.stroke();
+  }
+
   if (isSakura) {
-    // Cluster of delicate 5-petal cherry blossoms
-    const blossomCount = 15;
+    // Rich cluster of delicate 5-petal cherry blossoms + pink buds
+    const blossomCount = 26;
     for (let b = 0; b < blossomCount; b++) {
       const ang = rand() * Math.PI * 2;
-      const dist = Math.sqrt(rand()) * 78;
+      const dist = Math.pow(rand(), 0.58) * 175;
       const cx = s * 0.5 + Math.cos(ang) * dist;
       const cy = s * 0.5 + Math.sin(ang) * dist;
-      const r = 18 + rand() * 14;
+      const r = 28 + rand() * 26;
       const rot = rand() * Math.PI * 2;
 
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(rot);
 
+      // Soft petal drop-shadow for layered depth
+      ctx.fillStyle = 'rgba(135, 68, 92, 0.16)';
+      ctx.beginPath();
+      ctx.arc(3, 4, r * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+
       const tint = rand();
-      const outerCol = tint < 0.35 ? '#fff3f7' : tint < 0.75 ? '#ffd2e1' : '#f8b4cb';
-      const innerCol = '#f282a8';
+      const outerCol = tint < 0.35 ? '#fff4f8' : tint < 0.75 ? '#ffd6e4' : '#f9b9cf';
+      const innerCol = '#ef84a9';
 
       for (let p = 0; p < 5; p++) {
         ctx.save();
         ctx.rotate((p / 5) * Math.PI * 2);
-        const pg = ctx.createRadialGradient(0, r * 0.15, 1, 0, r * 0.5, r);
+        const pg = ctx.createRadialGradient(0, r * 0.15, 1, 0, r * 0.52, r);
         pg.addColorStop(0, innerCol);
-        pg.addColorStop(0.35, outerCol);
-        pg.addColorStop(1, '#fff6f9');
+        pg.addColorStop(0.36, outerCol);
+        pg.addColorStop(1, '#fff8fa');
         ctx.fillStyle = pg;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.bezierCurveTo(-r * 0.52, r * 0.35, -r * 0.42, r * 0.96, -r * 0.08, r * 0.92);
-        ctx.lineTo(0, r * 0.78); // Sakura petal notch
+        ctx.lineTo(0, r * 0.78);
         ctx.lineTo(r * 0.08, r * 0.92);
         ctx.bezierCurveTo(r * 0.42, r * 0.96, r * 0.52, r * 0.35, 0, 0);
         ctx.fill();
         ctx.restore();
       }
 
-      // Rosy stamen center
-      ctx.fillStyle = '#d44872';
+      ctx.fillStyle = '#cf4670';
       ctx.beginPath();
-      ctx.arc(0, 0, r * 0.17, 0, Math.PI * 2);
+      ctx.arc(0, 0, r * 0.16, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#ffe596';
-      for (let st = 0; st < 6; st++) {
-        const sa = (st / 6) * Math.PI * 2 + rot;
+      ctx.fillStyle = '#ffe69a';
+      for (let st = 0; st < 7; st++) {
+        const sa = (st / 7) * Math.PI * 2 + rot;
         ctx.beginPath();
-        ctx.arc(Math.cos(sa) * r * 0.22, Math.sin(sa) * r * 0.22, 1.5, 0, Math.PI * 2);
+        ctx.arc(Math.cos(sa) * r * 0.22, Math.sin(sa) * r * 0.22, 2.2, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
     }
   } else {
-    // Neutral-luminance botanical leaf cluster (tinted dynamically by seasonal color)
-    const leafCount = 24;
+    // Detailed botanical tree-leaf sprig (neutral-warm luminance, tinted dynamically by season)
+    const leafCount = 54;
     for (let l = 0; l < leafCount; l++) {
       const ang = rand() * Math.PI * 2;
-      const dist = Math.sqrt(rand()) * 78;
+      const dist = Math.pow(rand(), 0.56) * 184;
       const cx = s * 0.5 + Math.cos(ang) * dist;
       const cy = s * 0.5 + Math.sin(ang) * dist;
-      const len = 26 + rand() * 24;
-      const wid = len * (0.42 + rand() * 0.16);
-      const rot = ang + (rand() - 0.5) * 1.1;
+      const len = 44 + rand() * 44;
+      const wid = len * (0.36 + rand() * 0.18);
+      const rot = ang + (rand() - 0.5) * 1.25;
 
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(rot);
 
-      const shade = Math.floor(170 + rand() * 82);
+      // Subtle petiole stem
+      ctx.strokeStyle = 'rgba(90, 82, 72, 0.65)';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(-len * 0.64, 0);
+      ctx.lineTo(-len * 0.45, 0);
+      ctx.stroke();
+
+      // Inner leaves slightly darker, outer sunlit leaves brighter for 3D depth
+      const depthShade = 0.78 + 0.22 * (dist / 184);
+      const shade = Math.floor((148 + rand() * 98) * depthShade);
       const g = ctx.createLinearGradient(-len * 0.5, 0, len * 0.5, 0);
-      g.addColorStop(0, `rgb(${shade - 42},${shade - 38},${shade - 45})`);
-      g.addColorStop(0.55, `rgb(${shade},${shade},${shade})`);
-      g.addColorStop(1, `rgb(${Math.min(255, shade + 24)},${Math.min(255, shade + 24)},${Math.min(255, shade + 20)})`);
+      g.addColorStop(0, `rgb(${Math.max(40, shade - 48)},${Math.max(40, shade - 44)},${Math.max(36, shade - 52)})`);
+      g.addColorStop(0.55, `rgb(${shade},${shade},${Math.max(0, shade - 6)})`);
+      g.addColorStop(1, `rgb(${Math.min(255, shade + 26)},${Math.min(255, shade + 24)},${Math.min(255, shade + 14)})`);
       ctx.fillStyle = g;
 
+      // Pointed botanical leaf silhouette
       ctx.beginPath();
       ctx.moveTo(-len * 0.5, 0);
-      ctx.quadraticCurveTo(0, -wid, len * 0.5, 0);
-      ctx.quadraticCurveTo(0, wid, -len * 0.5, 0);
+      ctx.bezierCurveTo(-len * 0.22, -wid * 0.95, len * 0.2, -wid * 0.85, len * 0.54, 0);
+      ctx.bezierCurveTo(len * 0.2, wid * 0.85, -len * 0.22, wid * 0.95, -len * 0.5, 0);
       ctx.fill();
 
-      // Central vein
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = 1;
+      // Crisp dark outline edge for leafy separation
+      ctx.strokeStyle = 'rgba(28, 26, 22, 0.24)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Midrib & fine side veins
+      ctx.strokeStyle = 'rgba(255, 255, 245, 0.22)';
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
       ctx.moveTo(-len * 0.44, 0);
-      ctx.lineTo(len * 0.42, 0);
+      ctx.lineTo(len * 0.44, 0);
+      for (let v = -1; v <= 1; v++) {
+        const vx = v * len * 0.16;
+        ctx.moveTo(vx, 0);
+        ctx.lineTo(vx + len * 0.14, -wid * 0.48);
+        ctx.moveTo(vx, 0);
+        ctx.lineTo(vx + len * 0.14, wid * 0.48);
+      }
       ctx.stroke();
 
       ctx.restore();
     }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = anisotropy;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function makeShrubClusterTexture(anisotropy = 4) {
+  const rand = mulberry32(719);
+  const s = 512;
+  const c = createCanvas(s, s);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, s, s);
+
+  // Fine dark interior woody twigs
+  ctx.strokeStyle = 'rgba(56, 44, 34, 0.82)';
+  ctx.lineCap = 'round';
+  for (let t = 0; t < 8; t++) {
+    const a = (t / 8) * Math.PI * 2 + (rand() - 0.5) * 0.4;
+    const len = 70 + rand() * 85;
+    ctx.lineWidth = 2.5 + rand() * 2.0;
+    ctx.beginPath();
+    ctx.moveTo(s * 0.5, s * 0.54);
+    ctx.lineTo(s * 0.5 + Math.cos(a) * len, s * 0.54 + Math.sin(a) * len);
+    ctx.stroke();
+  }
+
+  // Dense cluster of small elliptical Japanese garden shrub leaves (azalea / boxwood feel)
+  const leafCount = 78;
+  for (let l = 0; l < leafCount; l++) {
+    const ang = rand() * Math.PI * 2;
+    const dist = Math.pow(rand(), 0.55) * 188;
+    const cx = s * 0.5 + Math.cos(ang) * dist;
+    const cy = s * 0.5 + Math.sin(ang) * dist;
+    const len = 28 + rand() * 28;
+    const wid = len * (0.44 + rand() * 0.18);
+    const rot = ang + (rand() - 0.5) * 1.4;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+
+    const depthShade = 0.72 + 0.28 * (dist / 188);
+    const shade = Math.floor((142 + rand() * 102) * depthShade);
+    const g = ctx.createLinearGradient(-len * 0.5, 0, len * 0.5, 0);
+    g.addColorStop(0, `rgb(${Math.max(36, shade - 46)},${Math.max(36, shade - 42)},${Math.max(32, shade - 48)})`);
+    g.addColorStop(0.6, `rgb(${shade},${shade},${Math.max(0, shade - 6)})`);
+    g.addColorStop(1, `rgb(${Math.min(255, shade + 24)},${Math.min(255, shade + 22)},${Math.min(255, shade + 14)})`);
+    ctx.fillStyle = g;
+
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.5, 0);
+    ctx.quadraticCurveTo(0, -wid, len * 0.52, 0);
+    ctx.quadraticCurveTo(0, wid, -len * 0.5, 0);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(24, 24, 20, 0.22)';
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 248, 0.2)';
+    ctx.lineWidth = 1.0;
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.4, 0);
+    ctx.lineTo(len * 0.4, 0);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   const tex = new THREE.CanvasTexture(c);
@@ -667,24 +935,93 @@ function makeTerrainUnderlayTexture(anisotropy = 4) {
   const s = 512;
   const c = createCanvas(s, s);
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#485b34';
+  // Neutral high-luminance micro-turf base so seasonal uGroundColor tints it cleanly without dark-green clash
+  ctx.fillStyle = '#c2c1b9';
   ctx.fillRect(0, 0, s, s);
-  for (let i = 0; i < 6500; i++) {
+
+  // Soft mottled organic ground tone variation
+  for (let i = 0; i < 4200; i++) {
     const x = rand() * s;
     const y = rand() * s;
-    const r = 1 + rand() * 6;
+    const r = 1.5 + rand() * 8.5;
     const t = rand();
     ctx.fillStyle =
-      t < 0.35
-        ? 'rgba(56,74,36,0.22)'
-        : t < 0.7
-          ? 'rgba(88,108,58,0.18)'
-          : 'rgba(72,62,42,0.22)';
+      t < 0.34
+        ? 'rgba(150,148,136,0.22)'
+        : t < 0.68
+          ? 'rgba(222,220,210,0.2)'
+          : 'rgba(176,168,148,0.2)';
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
-  return finalizeTexture(c, { repeatX: 12, repeatY: 12, srgb: true, anisotropy });
+
+  // Fine interwoven turf / thatch micro-strokes for photorealistic ground grain
+  for (let i = 0; i < 5500; i++) {
+    const x = rand() * s;
+    const y = rand() * s;
+    const len = 3 + rand() * 9;
+    const ang = rand() * Math.PI * 2;
+    ctx.strokeStyle = rand() > 0.48 ? 'rgba(132,130,118,0.28)' : 'rgba(232,230,218,0.24)';
+    ctx.lineWidth = 0.7 + rand() * 0.9;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+    ctx.stroke();
+  }
+  return finalizeTexture(c, { repeatX: 16, repeatY: 16, srgb: true, anisotropy });
+}
+
+function makeVolumetricLeafCardGeo(size = 1.0) {
+  // 3 intersecting tilted quads (12 verts, 6 tris) -> full organic volume from every viewing angle
+  const specs = [
+    { ry: 0.0, rx: 0.22, rz: 0.0 },
+    { ry: Math.PI / 3, rx: -0.22, rz: 0.08 },
+    { ry: (2 * Math.PI) / 3, rx: 0.18, rz: -0.14 },
+  ];
+  const planes = [];
+  for (const sp of specs) {
+    const p = new THREE.PlaneGeometry(size, size, 1, 1);
+    p.rotateX(sp.rx);
+    p.rotateZ(sp.rz);
+    p.rotateY(sp.ry);
+    const na = p.attributes.normal;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < na.count; i++) {
+      v.fromBufferAttribute(na, i);
+      // Soft upward-biased normal for natural canopy lighting
+      v.set(v.x * 0.45, v.y * 0.45 + 0.74, v.z * 0.45).normalize();
+      na.setXYZ(i, v.x, v.y, v.z);
+    }
+    planes.push(p);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const totalVerts = planes.length * 4;
+  const totalIdx = planes.length * 6;
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices = new Uint16Array(totalIdx);
+
+  for (let pi = 0; pi < planes.length; pi++) {
+    const p = planes[pi];
+    positions.set(p.attributes.position.array, pi * 12);
+    normals.set(p.attributes.normal.array, pi * 12);
+    uvs.set(p.attributes.uv.array, pi * 8);
+    const vOff = pi * 4;
+    const idxArr = p.index.array;
+    for (let j = 0; j < 6; j++) {
+      indices[pi * 6 + j] = idxArr[j] + vOff;
+    }
+    p.dispose();
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+  return geo;
 }
 
 // ============================================================================
@@ -692,40 +1029,52 @@ function makeTerrainUnderlayTexture(anisotropy = 4) {
 // ============================================================================
 const SEASON_COLORS = {
   grassBase: {
-    spring: new THREE.Color('#2c5c1f'),
-    summer: new THREE.Color('#1c4617'),
-    autumn: new THREE.Color('#4a461e'),
-    winter: new THREE.Color('#4e4430'),
+    spring: new THREE.Color('#3b6a27'),
+    summer: new THREE.Color('#27541f'),
+    autumn: new THREE.Color('#5c5928'),
+    winter: new THREE.Color('#5d523a'),
   },
   grassTip: {
-    spring: new THREE.Color('#80c94d'),
-    summer: new THREE.Color('#4c912b'),
-    autumn: new THREE.Color('#b89238'),
-    winter: new THREE.Color('#978564'),
+    spring: new THREE.Color('#5c9037'),
+    summer: new THREE.Color('#3e732b'),
+    autumn: new THREE.Color('#84783a'),
+    winter: new THREE.Color('#7c6f51'),
   },
   groundBase: {
-    spring: new THREE.Color('#4a6e30'),
-    summer: new THREE.Color('#345924'),
-    autumn: new THREE.Color('#685c32'),
-    winter: new THREE.Color('#5e5440'),
+    spring: new THREE.Color('#47752d'),
+    summer: new THREE.Color('#305f24'),
+    autumn: new THREE.Color('#69632f'),
+    winter: new THREE.Color('#685c42'),
   },
   treeLeafA: {
-    spring: new THREE.Color('#7cc949'),
-    summer: new THREE.Color('#2d6e26'),
-    autumn: new THREE.Color('#c8361c'),
-    winter: new THREE.Color('#7a5338'),
+    spring: new THREE.Color('#78c247'),
+    summer: new THREE.Color('#2c6b25'),
+    autumn: new THREE.Color('#c6381e'),
+    winter: new THREE.Color('#785238'),
   },
   treeLeafB: {
-    spring: new THREE.Color('#4da034'),
-    summer: new THREE.Color('#4f9436'),
-    autumn: new THREE.Color('#e68d22'),
-    winter: new THREE.Color('#684630'),
+    spring: new THREE.Color('#4d9c34'),
+    summer: new THREE.Color('#4c8f34'),
+    autumn: new THREE.Color('#e28a24'),
+    winter: new THREE.Color('#64442f'),
   },
   shrub: {
-    spring: new THREE.Color('#4f8f37'),
-    summer: new THREE.Color('#2b6325'),
-    autumn: new THREE.Color('#8c622b'),
-    winter: new THREE.Color('#4f523a'),
+    spring: new THREE.Color('#488733'),
+    summer: new THREE.Color('#295d23'),
+    autumn: new THREE.Color('#7f5f2b'),
+    winter: new THREE.Color('#484e36'),
+  },
+  shrubB: {
+    spring: new THREE.Color('#67a645'),
+    summer: new THREE.Color('#3e7932'),
+    autumn: new THREE.Color('#a47634'),
+    winter: new THREE.Color('#5d5c40'),
+  },
+  bgEvergreen: {
+    spring: new THREE.Color('#305e2b'),
+    summer: new THREE.Color('#244c22'),
+    autumn: new THREE.Color('#2f5228'),
+    winter: new THREE.Color('#2c4529'),
   },
   distantHill: {
     spring: new THREE.Color('#5c7e52'),
@@ -913,6 +1262,7 @@ export class Garden {
         repeatY: 1,
         seed: 103,
       }),
+      woodFence: makeFenceWoodTextures(this._maxAniso, 109),
       kawara: makeKawaraRoofTextures(this._maxAniso),
       shikkui: makeShikkuiTexture(this._maxAniso),
       shoji: makeShojiTexture(this._maxAniso),
@@ -921,6 +1271,7 @@ export class Garden {
       bark: makeSakuraBarkTextures(this._maxAniso),
       sakuraCluster: makeFoliageClusterTexture(true, this._maxAniso),
       leafCluster: makeFoliageClusterTexture(false, this._maxAniso),
+      shrubCluster: makeShrubClusterTexture(this._maxAniso),
       glow: makeSoftGlowTexture(),
       moon: makeMoonTexture(),
       kibble: makeKibbleTexture(),
@@ -944,6 +1295,7 @@ export class Garden {
     this._buildPond();
     this._buildFlowerbed();
     this._buildSteppingStonesAndProps();
+    this._buildGroundDetails();
     this._buildButterflies();
     this._buildBirds();
     this._buildParticles();
@@ -1498,18 +1850,77 @@ export class Garden {
   }
 
   // ==========================================================================
-  // 2. Terrain & Distant Rolling Horizon Hills
+  // 2. Terrain, Exposed Soil Patches & Distant Rolling Horizon Hills + Bg Trees
   // ==========================================================================
+  _getSoilExposure(x, z) {
+    let mask = 0;
+    const L = this._layout;
+    const pond = L.pond;
+    const fbed = L.flowerbed;
+
+    // Pond bank & bed
+    const pd = Math.hypot((x - pond.x) / pond.rx, (z - pond.z) / pond.rz);
+    if (pd < 1.18) {
+      mask = Math.max(mask, 1.0 - smoothstep(0.75, 1.18, pd));
+    }
+    // Flowerbed interior
+    if (Math.abs(x - fbed.x) < fbed.hx + 0.12 && Math.abs(z - fbed.z) < fbed.hz + 0.12) {
+      mask = 1.0;
+    }
+    // Hero tree root base (organic irregular earth patch)
+    const dTree = Math.hypot(x - L.treePos.x, z - L.treePos.z);
+    if (dTree < 2.25) {
+      const angT = Math.atan2(z - L.treePos.z, x - L.treePos.x);
+      const jitter = 0.28 * Math.sin(angT * 3.0 + 0.7) + 0.16 * Math.cos(angT * 5.0);
+      mask = Math.max(mask, (1.0 - smoothstep(0.75, 1.95 + jitter, dTree)) * 0.92);
+    }
+    // Worn earth patches in front of doghouse & around water/food bowls
+    const dDh = Math.hypot((x - (L.doghousePos.x + 0.65)) / 1.45, (z - (L.doghousePos.z + 1.15)) / 1.25);
+    if (dDh < 1.25) {
+      mask = Math.max(mask, (1.0 - smoothstep(0.32, 1.18, dDh)) * 0.85);
+    }
+    const dBowls = Math.hypot((x - -3.8) / 1.35, (z - -7.95) / 0.85);
+    if (dBowls < 1.2) {
+      mask = Math.max(mask, (1.0 - smoothstep(0.32, 1.15, dBowls)) * 0.72);
+    }
+    // Natural scattered bare-earth / worn dog-play patches across the yard
+    const dirtPatches = [
+      { x: -3.2, z: 1.9, rx: 1.15, rz: 0.85, str: 0.84 },
+      { x: 3.1, z: -0.9, rx: 0.95, rz: 1.18, str: 0.78 },
+      { x: -1.1, z: 6.4, rx: 1.25, rz: 0.9, str: 0.80 },
+      { x: 9.2, z: -0.8, rx: 1.1, rz: 0.82, str: 0.74 },
+      { x: -8.8, z: 1.2, rx: 1.0, rz: 0.78, str: 0.76 },
+      { x: 0.3, z: -4.8, rx: 0.85, rz: 1.25, str: 0.56 },
+    ];
+    for (let i = 0; i < dirtPatches.length; i++) {
+      const dp = dirtPatches[i];
+      const d = Math.hypot((x - dp.x) / dp.rx, (z - dp.z) / dp.rz);
+      if (d < 1.25) {
+        const wobble = 0.18 * Math.sin(x * 2.4 + z * 1.9) + 0.12 * Math.cos(x * 3.8 - z * 2.7);
+        mask = Math.max(mask, (1.0 - smoothstep(0.28, 1.12 + wobble, d)) * dp.str);
+      }
+    }
+    // Thin earthy drip-line strip along fence perimeter
+    const edgeDist = Math.min(
+      Math.abs(x - L.fenceMinX),
+      Math.abs(L.fenceMaxX - x),
+      Math.abs(L.fenceMaxZ - z)
+    );
+    if (edgeDist < 0.78) {
+      const edgeNoise = 0.5 + 0.5 * Math.sin((x + z) * 1.4) * Math.cos((x - z) * 0.9);
+      mask = Math.max(mask, (1.0 - smoothstep(0.14, 0.72, edgeDist)) * (0.48 + 0.34 * edgeNoise));
+    }
+    return clamp(mask, 0, 1);
+  }
+
   _buildTerrainAndHills() {
     // Yard terrain mesh (high resolution for smooth undulations & pond basin)
     const size = 34;
-    const segs = 112;
+    const segs = 128;
     const geo = new THREE.PlaneGeometry(size, size, segs, segs);
     geo.rotateX(-Math.PI / 2);
 
     const pos = geo.attributes.position;
-    const pond = this._layout.pond;
-    const fbed = this._layout.flowerbed;
     const soilMask = new Float32Array(pos.count);
 
     for (let i = 0; i < pos.count; i++) {
@@ -1517,29 +1928,14 @@ export class Garden {
       const z = pos.getZ(i);
       const y = this.getGroundHeight(x, z);
       pos.setY(i, y);
-
-      // Mark soil / pond-bed regions (0 = grass ground, 1 = dark earth/pebble)
-      let mask = 0;
-      const pd = Math.hypot((x - pond.x) / pond.rx, (z - pond.z) / pond.rz);
-      if (pd < 1.15) {
-        mask = Math.max(mask, 1.0 - smoothstep(0.75, 1.15, pd));
-      }
-      if (Math.abs(x - fbed.x) < fbed.hx + 0.1 && Math.abs(z - fbed.z) < fbed.hz + 0.1) {
-        mask = 1.0;
-      }
-      // Subtle earthy patch under doghouse & tree base
-      const dTree = Math.hypot(x - this._layout.treePos.x, z - this._layout.treePos.z);
-      if (dTree < 1.7) {
-        mask = Math.max(mask, (1.0 - smoothstep(0.7, 1.7, dTree)) * 0.75);
-      }
-      soilMask[i] = mask;
+      soilMask[i] = this._getSoilExposure(x, z);
     }
     geo.setAttribute('aSoilMask', new THREE.BufferAttribute(soilMask, 1));
     geo.computeVertexNormals();
 
     const terrainMat = new THREE.MeshStandardMaterial({
       map: this._tex.terrain,
-      roughness: 0.94,
+      roughness: 0.95,
       metalness: 0.0,
     });
 
@@ -1579,16 +1975,26 @@ export class Garden {
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-          vec3 lawnTint = diffuseColor.rgb * uGroundColor * 2.15;
-          vec3 soilCol = vec3(0.24, 0.18, 0.12) * (0.7 + 0.6 * diffuseColor.r);
-          vec3 pebbleCol = vec3(0.32, 0.30, 0.25) * (0.75 + 0.5 * diffuseColor.g);
+          // Macro meadow variation synchronized with grass canopy
+          float macro = 0.5 + 0.5 * sin(vTerrainWorldPos.x * 0.36 + cos(vTerrainWorldPos.z * 0.32));
+          float microN = sin(vTerrainWorldPos.x * 3.7 + cos(vTerrainWorldPos.z * 3.3)) * 0.5
+                       + sin((vTerrainWorldPos.x - vTerrainWorldPos.z) * 7.1) * 0.25;
+          vec3 lawnTint = diffuseColor.rgb * uGroundColor * 1.82 * (0.92 + 0.14 * macro);
+
+          // Rich organic bare loam / soil color with gritty micro-variation
+          vec3 soilDark = vec3(0.21, 0.155, 0.105);
+          vec3 soilWarm = vec3(0.35, 0.265, 0.175);
+          vec3 soilCol = mix(soilDark, soilWarm, clamp(0.45 + 0.35 * microN + (diffuseColor.r - 0.55) * 0.85, 0.0, 1.0));
+          vec3 pebbleCol = vec3(0.30, 0.28, 0.24) * (0.72 + 0.55 * diffuseColor.g);
+
           float underwater = 1.0 - smoothstep(uWaterLevel - 0.08, uWaterLevel + 0.05, vTerrainWorldPos.y);
-          vec3 baseCol = mix(lawnTint, soilCol, vSoilMask);
+          float organicSoil = smoothstep(0.16, 0.72, vSoilMask + microN * 0.14);
+          vec3 baseCol = mix(lawnTint, soilCol, organicSoil);
           baseCol = mix(baseCol, pebbleCol, underwater);
 
           // Wetness darkens earth & grass underlay
           float localWet = max(uWetness, underwater);
-          baseCol *= mix(1.0, 0.68, localWet);
+          baseCol *= mix(1.0, 0.66, localWet);
 
           // Snow blanket (never underwater, patchy transition)
           float patchNoise = sin(vTerrainWorldPos.x * 0.7) * cos(vTerrainWorldPos.z * 0.65) * 0.14
@@ -1637,91 +2043,272 @@ export class Garden {
     outerHills.receiveShadow = false;
     this.scene.add(outerHills);
 
-    // Distant neighborhood tree silhouettes outside the fence (soft atmospheric depth)
+    // Distant neighborhood trees outside the fence: branching trunks + InstancedMesh alpha leaf cards
     const rand = mulberry32(1212);
-    const crownGeo = new THREE.DodecahedronGeometry(1, 1);
-    const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 3.2, 6);
-    this._bgTreeCrownMat = new THREE.MeshStandardMaterial({
-      color: 0x3b6334,
-      roughness: 0.92,
-    });
-    const bgTrunkMat = new THREE.MeshStandardMaterial({ color: 0x453429, roughness: 0.95 });
-
     const bgTreeCount = 34;
-    const bgCrowns = new THREE.InstancedMesh(crownGeo, this._bgTreeCrownMat, bgTreeCount);
-    const bgTrunks = new THREE.InstancedMesh(trunkGeo, bgTrunkMat, bgTreeCount);
+    const branchMatrices = [];
+    const leafMatrices = [];
+    const leafRands = [];
+    const leafShades = [];
+
+    const unitCyl = new THREE.CylinderGeometry(0.11, 0.22, 1.0, 6);
+    unitCyl.translate(0, 0.5, 0);
+    const bgBarkMat = new THREE.MeshStandardMaterial({
+      map: this._tex.bark.map,
+      roughness: 0.95,
+    });
+
+    const upVec = new THREE.Vector3(0, 1, 0);
+    const tmpDir = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+
     for (let i = 0; i < bgTreeCount; i++) {
       const ang = (i / bgTreeCount) * Math.PI * 2 + (rand() - 0.5) * 0.16;
-      const dist = 21 + rand() * 24;
+      const dist = 20.5 + rand() * 23.0;
       const x = Math.cos(ang) * dist;
       const z = Math.sin(ang) * dist;
-      const s = 2.0 + rand() * 2.8;
-      this._dummy.position.set(x, 1.4, z);
-      this._dummy.rotation.set(0, rand() * Math.PI * 2, 0);
-      this._dummy.scale.set(1, 0.9 + rand() * 0.7, 1);
-      this._dummy.updateMatrix();
-      bgTrunks.setMatrixAt(i, this._dummy.matrix);
+      const treeScale = 0.85 + rand() * 0.65;
+      const trunkH = (2.6 + rand() * 2.0) * treeScale;
+      const crownR = (2.2 + rand() * 1.9) * treeScale;
+      const crownY = trunkH + crownR * 0.55;
+      // Tree species kind: <0.30 evergreen, 0.30..0.78 deciduous, >0.78 spring-blossom deciduous
+      const speciesType = rand();
 
-      this._dummy.position.set(x, 2.8 + s * 0.85, z);
-      this._dummy.scale.set(s * (0.9 + rand() * 0.35), s * (0.85 + rand() * 0.35), s * (0.9 + rand() * 0.35));
+      // Main trunk
+      this._dummy.position.set(x, -0.2, z);
+      this._dummy.rotation.set((rand() - 0.5) * 0.08, rand() * Math.PI * 2, (rand() - 0.5) * 0.08);
+      this._dummy.scale.set(1.1 * treeScale, trunkH + 0.6, 1.1 * treeScale);
       this._dummy.updateMatrix();
-      bgCrowns.setMatrixAt(i, this._dummy.matrix);
+      branchMatrices.push(this._dummy.matrix.clone());
+
+      // 4 angled main limbs branching into crown
+      const limbCount = 4;
+      const limbTips = [];
+      for (let b = 0; b < limbCount; b++) {
+        const bAng = (b / limbCount) * Math.PI * 2 + rand() * 0.7;
+        const startY = trunkH * (0.62 + rand() * 0.25);
+        const limbLen = crownR * (0.68 + rand() * 0.36);
+        const endX = x + Math.cos(bAng) * limbLen * 0.78;
+        const endY = startY + limbLen * (0.55 + rand() * 0.35);
+        const endZ = z + Math.sin(bAng) * limbLen * 0.78;
+
+        tmpDir.set(endX - x, endY - startY, endZ - z);
+        const len = tmpDir.length();
+        tmpDir.normalize();
+        tmpQuat.setFromUnitVectors(upVec, tmpDir);
+
+        this._dummy.position.set(x, startY, z);
+        this._dummy.quaternion.copy(tmpQuat);
+        this._dummy.scale.set(0.55 * treeScale, len, 0.55 * treeScale);
+        this._dummy.updateMatrix();
+        branchMatrices.push(this._dummy.matrix.clone());
+
+        limbTips.push(new THREE.Vector3(endX, endY, endZ));
+        limbTips.push(new THREE.Vector3(lerp(x, endX, 0.65), lerp(startY, endY, 0.65) + 0.35, lerp(z, endZ, 0.65)));
+      }
+      // Crown apex anchor
+      limbTips.push(new THREE.Vector3(x, crownY + crownR * 0.45, z));
+
+      // Scatter 36 volumetric alpha leaf cards organically around the limbs
+      const cardsPerTree = 36;
+      for (let c = 0; c < cardsPerTree; c++) {
+        const anchor = limbTips[c % limbTips.length];
+        const th = rand() * Math.PI * 2;
+        const phi = Math.acos(2 * rand() - 1);
+        const rr = Math.pow(rand(), 0.62) * crownR * 0.72;
+        const lx = anchor.x + Math.sin(phi) * Math.cos(th) * rr;
+        const ly = anchor.y + Math.cos(phi) * rr * 0.75;
+        const lz = anchor.z + Math.sin(phi) * Math.sin(th) * rr;
+
+        const cardS = (0.78 + rand() * 0.75) * (0.9 + treeScale * 0.45);
+        this._dummy.position.set(lx, ly, lz);
+        this._dummy.rotation.set((rand() - 0.5) * 0.9, rand() * Math.PI * 2, (rand() - 0.5) * 0.9);
+        this._dummy.scale.setScalar(cardS);
+        this._dummy.updateMatrix();
+        leafMatrices.push(this._dummy.matrix.clone());
+
+        leafRands.push(rand(), speciesType);
+
+        // Soft 3D canopy AO (brighter on upper/outer canopy, deeper inside/underneath)
+        const relY = clamp((ly - (crownY - crownR * 0.8)) / (crownR * 1.65), 0, 1);
+        const relR = clamp(Math.hypot(lx - x, lz - z) / (crownR * 1.15), 0, 1);
+        leafShades.push(0.62 + 0.34 * relY + 0.14 * relR);
+      }
     }
-    bgCrowns.instanceMatrix.needsUpdate = true;
-    bgTrunks.instanceMatrix.needsUpdate = true;
-    this.scene.add(bgTrunks);
-    this.scene.add(bgCrowns);
+
+    const bgBranches = new THREE.InstancedMesh(unitCyl, bgBarkMat, branchMatrices.length);
+    bgBranches.frustumCulled = false;
+    for (let i = 0; i < branchMatrices.length; i++) {
+      bgBranches.setMatrixAt(i, branchMatrices[i]);
+    }
+    bgBranches.instanceMatrix.needsUpdate = true;
+    this.scene.add(bgBranches);
+
+    const bgLeafGeo = makeVolumetricLeafCardGeo(1.45);
+    bgLeafGeo.setAttribute('aLeafRand', new THREE.InstancedBufferAttribute(new Float32Array(leafRands), 2));
+    bgLeafGeo.setAttribute('aCanopyShade', new THREE.InstancedBufferAttribute(new Float32Array(leafShades), 1));
+
+    this._bgTreeLeafUniforms = {
+      uDecidA: { value: SEASON_COLORS.treeLeafA.spring.clone() },
+      uDecidB: { value: SEASON_COLORS.treeLeafB.spring.clone() },
+      uEvergreen: { value: SEASON_COLORS.bgEvergreen.spring.clone() },
+      uSakuraMix: { value: 0.0 },
+      uDecidScale: { value: 1.0 },
+    };
+
+    const bgLeafMat = new THREE.MeshStandardMaterial({
+      map: this._tex.leafCluster,
+      alphaTest: 0.34,
+      side: THREE.DoubleSide,
+      roughness: 0.84,
+      metalness: 0.0,
+    });
+    const bgU = this._bgTreeLeafUniforms;
+    bgLeafMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = u.uTime;
+      shader.uniforms.uWindStrength = u.uWindStrength;
+      shader.uniforms.uSnowCover = u.uSnowCover;
+      shader.uniforms.uDecidA = bgU.uDecidA;
+      shader.uniforms.uDecidB = bgU.uDecidB;
+      shader.uniforms.uEvergreen = bgU.uEvergreen;
+      shader.uniforms.uSakuraMix = bgU.uSakuraMix;
+      shader.uniforms.uDecidScale = bgU.uDecidScale;
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          attribute vec2 aLeafRand;
+          attribute float aCanopyShade;
+          uniform float uTime;
+          uniform float uWindStrength;
+          uniform float uDecidScale;
+          varying vec2 vLeafRand;
+          varying float vCanopyShade;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          vLeafRand = aLeafRand;
+          vCanopyShade = aCanopyShade;
+          float isEvergreen = step(aLeafRand.y, 0.30);
+          float seasonScale = mix(uDecidScale, 1.0, isEvergreen);
+          transformed *= seasonScale;
+          vec3 instP = vec3(0.0);
+          #ifdef USE_INSTANCING
+            instP = instanceMatrix[3].xyz;
+          #endif
+          float flutter = sin(uTime * (1.4 + uWindStrength * 2.0) + instP.x * 0.4 + instP.z * 0.35 + aLeafRand.x * 6.2831);
+          float amp = (0.04 + uWindStrength * 0.14) * seasonScale;
+          transformed.x += flutter * amp;
+          transformed.y += cos(uTime * 1.2 + instP.y + aLeafRand.x * 6.2831) * amp * 0.45;`
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform vec3 uDecidA;
+          uniform vec3 uDecidB;
+          uniform vec3 uEvergreen;
+          uniform float uSakuraMix;
+          uniform float uSnowCover;
+          varying vec2 vLeafRand;
+          varying float vCanopyShade;`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          float isEvergreen = step(vLeafRand.y, 0.30);
+          float isBlossomTree = step(0.78, vLeafRand.y);
+          vec3 decidCol = mix(uDecidA, uDecidB, vLeafRand.x);
+          vec3 blossomCol = mix(vec3(0.95, 0.72, 0.80), vec3(0.99, 0.89, 0.93), vLeafRand.x);
+          decidCol = mix(decidCol, blossomCol, isBlossomTree * uSakuraMix);
+          vec3 everCol = uEvergreen * (0.86 + 0.28 * vLeafRand.x);
+          vec3 baseCol = mix(decidCol, everCol, isEvergreen) * 1.12;
+          baseCol *= vCanopyShade;
+          float topSnow = smoothstep(0.80, 1.05, vCanopyShade) * smoothstep(0.15, 0.85, uSnowCover);
+          diffuseColor.rgb = mix(diffuseColor.rgb * baseCol, vec3(0.91, 0.94, 0.98), topSnow * 0.72);`
+        );
+    };
+
+    this._bgTreeLeafMesh = new THREE.InstancedMesh(bgLeafGeo, bgLeafMat, leafMatrices.length);
+    this._bgTreeLeafMesh.frustumCulled = false;
+    for (let i = 0; i < leafMatrices.length; i++) {
+      this._bgTreeLeafMesh.setMatrixAt(i, leafMatrices[i]);
+    }
+    this._bgTreeLeafMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this._bgTreeLeafMesh);
   }
 
   // ==========================================================================
-  // 3. Instanced Wind-Swaying Grass (~46,000 blades!)
+  // 3. Instanced Wind-Swaying Grass (~288,000 slender blades in 16 LOD chunks!)
   // ==========================================================================
   _buildGrass() {
     const rand = mulberry32(2026);
-    const bladeCount = 46000;
+    const targetTufts = 72000;
 
-    // Sculpted arched 3-segment tapered blade geometry (7 vertices, 5 triangles)
-    const bladeGeo = new THREE.BufferGeometry();
-    const w0 = 0.028;
-    const w1 = 0.022;
-    const w2 = 0.012;
-    const h1 = 0.095;
-    const h2 = 0.19;
-    const h3 = 0.275;
-    const positions = new Float32Array([
-      -w0, 0.0, 0.0,
-       w0, 0.0, 0.0,
-      -w1, h1, 0.008,
-       w1, h1, 0.008,
-      -w2, h2, 0.028,
-       w2, h2, 0.028,
-       0.0, h3, 0.062,
-    ]);
-    // Soft upward-biased normals for lush meadow shading
-    const normals = new Float32Array([
-      -0.25, 0.94, 0.22,
-       0.25, 0.94, 0.22,
-      -0.22, 0.95, 0.2,
-       0.22, 0.95, 0.2,
-      -0.18, 0.96, 0.18,
-       0.18, 0.96, 0.18,
-       0.0, 0.98, 0.18,
-    ]);
-    const indices = [
-      0, 1, 2,
-      1, 3, 2,
-      2, 3, 4,
-      3, 5, 4,
-      4, 5, 6,
+    // 4-blade slender arched tuft geometry (20 verts, 12 tris per tuft -> ~1/3 blade width, lush carpet)
+    const tuftGeo = new THREE.BufferGeometry();
+    const bladeSpecs = [
+      { ox:  0.000, oz:  0.000, yaw: 0.00, hs: 1.06, curve: 0.048 },
+      { ox:  0.025, oz:  0.015, yaw: 1.56, hs: 0.94, curve: 0.052 },
+      { ox: -0.024, oz:  0.019, yaw: 3.16, hs: 1.00, curve: 0.044 },
+      { ox:  0.004, oz: -0.026, yaw: 4.74, hs: 0.84, curve: 0.056 },
     ];
-    bladeGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    bladeGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-    bladeGeo.setIndex(indices);
+    const w0 = 0.0092; // ~1/3 of previous 0.028 half-width
+    const w1 = 0.0056;
+    const vertsPerBlade = 5;
+    const posArr = new Float32Array(bladeSpecs.length * vertsPerBlade * 3);
+    const normArr = new Float32Array(bladeSpecs.length * vertsPerBlade * 3);
+    const bladeHArr = new Float32Array(bladeSpecs.length * vertsPerBlade);
+    const idxArr = [];
 
-    const aRand = new Float32Array(bladeCount * 2);
+    for (let b = 0; b < bladeSpecs.length; b++) {
+      const sp = bladeSpecs[b];
+      const cs = Math.cos(sp.yaw);
+      const sn = Math.sin(sp.yaw);
+      const h1 = 0.125 * sp.hs;
+      const h2 = 0.265 * sp.hs;
+      const z1 = 0.014 * sp.hs;
+      const z2 = sp.curve * sp.hs;
+
+      const localV = [
+        [-w0, 0.0, 0.0, -0.22, 0.95, 0.20, 0.0],
+        [ w0, 0.0, 0.0,  0.22, 0.95, 0.20, 0.0],
+        [-w1,  h1,  z1, -0.18, 0.96, 0.20, 0.48],
+        [ w1,  h1,  z1,  0.18, 0.96, 0.20, 0.48],
+        [0.0,  h2,  z2,  0.00, 0.98, 0.18, 1.0],
+      ];
+      const vo = b * vertsPerBlade;
+      for (let k = 0; k < vertsPerBlade; k++) {
+        const [lx, ly, lz, nx, ny, nz, bh] = localV[k];
+        const vi = vo + k;
+        posArr[vi * 3] = sp.ox + lx * cs - lz * sn;
+        posArr[vi * 3 + 1] = ly;
+        posArr[vi * 3 + 2] = sp.oz + lx * sn + lz * cs;
+
+        normArr[vi * 3] = nx * cs - nz * sn;
+        normArr[vi * 3 + 1] = ny;
+        normArr[vi * 3 + 2] = nx * sn + nz * cs;
+
+        bladeHArr[vi] = bh;
+      }
+      idxArr.push(
+        vo + 0, vo + 1, vo + 2,
+        vo + 1, vo + 3, vo + 2,
+        vo + 2, vo + 3, vo + 4
+      );
+    }
+
+    tuftGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    tuftGeo.setAttribute('normal', new THREE.BufferAttribute(normArr, 3));
+    tuftGeo.setAttribute('aBladeH', new THREE.BufferAttribute(bladeHArr, 1));
+    tuftGeo.setIndex(idxArr);
+
     const grassMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      roughness: 0.78,
+      roughness: 0.92,
       metalness: 0.0,
       side: THREE.DoubleSide,
     });
@@ -1735,13 +2322,13 @@ export class Garden {
       shader.uniforms.uTipColor = u.uGrassTipColor;
       shader.uniforms.uSnowCover = u.uSnowCover;
       shader.uniforms.uWetness = u.uWetness;
-      shader.uniforms.uSunColor = u.uSunColor;
       shader.uniforms.uSunIntensity = u.uSunIntensity;
 
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
           `#include <common>
+          attribute float aBladeH;
           attribute vec2 aRand;
           uniform float uTime;
           uniform float uWindStrength;
@@ -1753,7 +2340,7 @@ export class Garden {
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-          float hNorm = clamp(position.y / 0.275, 0.0, 1.0);
+          float hNorm = aBladeH;
           vBladeH = hNorm;
           vRand = aRand;
 
@@ -1763,11 +2350,20 @@ export class Garden {
           #endif
           vGrassWorld = instPos;
 
+          // Distance-based LOD thinning: 100% dense near camera, smoothly thinned & gently widened afar
+          float camDist = length(cameraPosition.xz - instPos.xz);
+          float keepProb = mix(1.0, 0.24, smoothstep(6.5, 21.0, camDist));
+          float thresh = aRand.y * 0.92;
+          float lodScale = smoothstep(thresh - 0.04, thresh + 0.04, keepProb);
+          float widthBoost = mix(1.0, 1.85, smoothstep(7.0, 22.0, camDist));
+          transformed.xz *= widthBoost * lodScale;
+          transformed.y *= lodScale;
+
           // Traveling wind gust waves across the lawn
           float phase = dot(instPos.xz, uWindDir) * 0.42 - uTime * (1.7 + uWindStrength * 2.6);
           float gust = sin(phase) * 0.65 + sin(phase * 2.1 + aRand.x * 6.2831) * 0.35;
           float micro = sin(uTime * 3.4 + instPos.x * 1.9 + instPos.z * 2.3 + aRand.y * 6.2831) * 0.18;
-          float bend = (0.045 + uWindStrength * 0.26) * (gust * 0.55 + 0.45 + micro) * (hNorm * hNorm);
+          float bend = (0.038 + uWindStrength * 0.22) * (gust * 0.55 + 0.45 + micro) * (hNorm * hNorm) * lodScale;
 
           // Rotate world wind into local instance space
           #ifdef USE_INSTANCING
@@ -1779,7 +2375,7 @@ export class Garden {
             transformed.x += uWindDir.x * bend;
             transformed.z += uWindDir.y * bend;
           #endif
-          transformed.y -= abs(bend) * 0.28 * hNorm;`
+          transformed.y -= abs(bend) * 0.25 * hNorm;`
         );
 
       shader.fragmentShader = shader.fragmentShader
@@ -1790,7 +2386,6 @@ export class Garden {
           uniform vec3 uTipColor;
           uniform float uSnowCover;
           uniform float uWetness;
-          uniform vec3 uSunColor;
           uniform float uSunIntensity;
           varying float vBladeH;
           varying vec2 vRand;
@@ -1799,41 +2394,46 @@ export class Garden {
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-          // Macro meadow variation + per-blade tint
-          float macro = 0.5 + 0.5 * sin(vGrassWorld.x * 0.38 + cos(vGrassWorld.z * 0.34));
-          vec3 col = mix(uBaseColor, uTipColor, smoothstep(0.05, 0.95, vBladeH));
-          col *= (0.86 + 0.28 * vRand.x) * (0.9 + 0.2 * macro);
-          // Warm backlit tip glow in sunlight
-          col += uSunColor * (0.08 * uSunIntensity * vBladeH * vBladeH);
-          // Root ambient occlusion
-          col *= mix(0.55, 1.0, smoothstep(0.0, 0.42, vBladeH));
+          // Macro meadow variation + subtle per-tuft hue/value variation
+          float macro = 0.5 + 0.5 * sin(vGrassWorld.x * 0.36 + cos(vGrassWorld.z * 0.32));
+          float macro2 = 0.5 + 0.5 * sin(vGrassWorld.x * 0.85 - vGrassWorld.z * 0.72 + 1.4);
+          vec3 col = mix(uBaseColor, uTipColor, smoothstep(0.08, 0.96, vBladeH));
+          col *= (0.90 + 0.18 * vRand.x) * (0.92 + 0.14 * macro) * (0.95 + 0.08 * macro2);
+          // Subtle sunlit warmth on tips (multiplicative so tips never blow out white)
+          col *= 1.0 + 0.06 * uSunIntensity * vBladeH * vBladeH;
+          // Gentle root ambient occlusion blending smoothly into matching ground underlay
+          col *= mix(0.76, 1.0, smoothstep(0.0, 0.46, vBladeH));
           // Wetness darkens grass slightly
-          col *= mix(1.0, 0.78, uWetness);
+          col *= mix(1.0, 0.76, uWetness);
           // Snow frost & blanket on blades
-          float snowTip = smoothstep(0.18, 0.88, uSnowCover + (vBladeH - 0.3) * 0.35 + (vRand.y - 0.5) * 0.2);
-          col = mix(col, vec3(0.93, 0.96, 1.0), snowTip * smoothstep(0.05, 0.65, uSnowCover));
+          float snowJitter = fract(vRand.y * 7.31);
+          float snowTip = smoothstep(0.18, 0.88, uSnowCover + (vBladeH - 0.3) * 0.35 + (snowJitter - 0.5) * 0.2);
+          col = mix(col, vec3(0.92, 0.95, 0.99), snowTip * smoothstep(0.05, 0.65, uSnowCover));
           diffuseColor.rgb = col;`
         )
         .replace(
           '#include <roughnessmap_fragment>',
           `#include <roughnessmap_fragment>
-          roughnessFactor = mix(roughnessFactor, 0.32, uWetness * (1.0 - uSnowCover * 0.7));`
+          roughnessFactor = mix(roughnessFactor, 0.36, uWetness * (1.0 - uSnowCover * 0.7));`
         );
     };
 
-    const grassMesh = new THREE.InstancedMesh(bladeGeo, grassMat, bladeCount);
-    grassMesh.castShadow = false;
-    grassMesh.receiveShadow = true;
-    grassMesh.frustumCulled = false;
+    // Partition tufts into 4x4 spatial chunks for automatic camera frustum culling
+    const gridN = 4;
+    const minX = -14.0;
+    const spanX = 28.0;
+    const minZ = -10.35;
+    const spanZ = 24.35;
+    const chunkBuckets = Array.from({ length: gridN * gridN }, () => []);
 
     const L = this._layout;
     let placed = 0;
     let attempts = 0;
 
-    while (placed < bladeCount && attempts < bladeCount * 3) {
+    while (placed < targetTufts && attempts < targetTufts * 3) {
       attempts++;
-      const x = -14.0 + rand() * 28.0;
-      const z = -10.35 + rand() * 24.35;
+      const x = minX + rand() * spanX;
+      const z = minZ + rand() * spanZ;
 
       // Skip pond water
       const pd = Math.hypot((x - L.pond.x) / (L.pond.rx * 0.97), (z - L.pond.z) / (L.pond.rz * 0.97));
@@ -1850,7 +2450,7 @@ export class Garden {
       // Skip hero tree solid trunk
       if (Math.hypot(x - L.treePos.x, z - L.treePos.z) < 0.78) continue;
 
-      // Skip directly on top of stepping stones (keep sparse tufts peeking around rims!)
+      // Skip directly on top of stepping stones (keep sparse tufts peeking around rims)
       let onStone = false;
       for (let s = 0; s < L.steppingStones.length; s++) {
         const st = L.steppingStones[s];
@@ -1863,36 +2463,77 @@ export class Garden {
       }
       if (onStone) continue;
 
+      // Organically thin out grass over exposed bare-earth patches so soil peeks naturally
+      const soil = this._getSoilExposure(x, z);
+      if (soil > 0.24 && rand() < smoothstep(0.24, 0.76, soil) * 0.92) continue;
+
       const y = this.getGroundHeight(x, z);
 
-      // Slightly taller natural tufts near fence edges, pond bank, tree base, and rocks
+      // Slightly taller natural tufts near fence edges, pond bank, tree base; shorter near dirt rims
       let heightBoost = 1.0;
-      if (Math.abs(x) > 12.8 || z > 12.8 || z < -9.5) heightBoost += 0.38;
-      if (pd < 1.25) heightBoost += 0.45;
-      if (Math.hypot(x - L.treePos.x, z - L.treePos.z) < 2.0) heightBoost += 0.22;
+      if (Math.abs(x) > 12.8 || z > 12.8 || z < -9.5) heightBoost += 0.34;
+      if (pd < 1.25) heightBoost += 0.42;
+      if (Math.hypot(x - L.treePos.x, z - L.treePos.z) < 2.0) heightBoost += 0.18;
+      if (soil > 0.15) heightBoost *= lerp(1.0, 0.56, soil);
 
-      const sY = (0.32 + rand() * 0.4) * heightBoost; // 犬が埋もれないよう短めに刈る
-      const sXZ = 0.8 + rand() * 0.65;
+      const sY = (0.33 + rand() * 0.39) * heightBoost; // Keep short lawn height so dog is never buried
+      const sXZ = 0.85 + rand() * 0.36;
 
-      this._dummy.position.set(x, y - 0.015, z);
-      this._dummy.rotation.set(
-        (rand() - 0.5) * 0.25,
+      const gx = clamp(Math.floor(((x - minX) / spanX) * gridN), 0, gridN - 1);
+      const gz = clamp(Math.floor(((z - minZ) / spanZ) * gridN), 0, gridN - 1);
+      chunkBuckets[gz * gridN + gx].push(
+        x,
+        y - 0.014,
+        z,
+        (rand() - 0.5) * 0.22,
         rand() * Math.PI * 2,
-        (rand() - 0.5) * 0.2
+        (rand() - 0.5) * 0.18,
+        sXZ,
+        sY,
+        rand(),
+        rand()
       );
-      this._dummy.scale.set(sXZ, sY, sXZ);
-      this._dummy.updateMatrix();
-      grassMesh.setMatrixAt(placed, this._dummy.matrix);
-
-      aRand[placed * 2] = rand();
-      aRand[placed * 2 + 1] = rand();
       placed++;
     }
 
-    grassMesh.count = placed;
-    bladeGeo.setAttribute('aRand', new THREE.InstancedBufferAttribute(aRand, 2));
-    grassMesh.instanceMatrix.needsUpdate = true;
-    this.scene.add(grassMesh);
+    const cellW = spanX / gridN;
+    const cellD = spanZ / gridN;
+    const chunkRad = Math.hypot(cellW * 0.5, cellD * 0.5) + 0.65;
+
+    for (let gz = 0; gz < gridN; gz++) {
+      for (let gx = 0; gx < gridN; gx++) {
+        const data = chunkBuckets[gz * gridN + gx];
+        const count = data.length / 10;
+        if (count === 0) continue;
+
+        const chunkGeo = tuftGeo.clone();
+        const aRand = new Float32Array(count * 2);
+        const chunkMesh = new THREE.InstancedMesh(chunkGeo, grassMat, count);
+        chunkMesh.castShadow = false;
+        chunkMesh.receiveShadow = true;
+        chunkMesh.frustumCulled = true;
+
+        for (let i = 0; i < count; i++) {
+          const o = i * 10;
+          this._dummy.position.set(data[o], data[o + 1], data[o + 2]);
+          this._dummy.rotation.set(data[o + 3], data[o + 4], data[o + 5]);
+          this._dummy.scale.set(data[o + 6], data[o + 7], data[o + 6]);
+          this._dummy.updateMatrix();
+          chunkMesh.setMatrixAt(i, this._dummy.matrix);
+          aRand[i * 2] = data[o + 8];
+          aRand[i * 2 + 1] = data[o + 9];
+        }
+
+        chunkGeo.setAttribute('aRand', new THREE.InstancedBufferAttribute(aRand, 2));
+        chunkMesh.instanceMatrix.needsUpdate = true;
+        chunkMesh.boundingSphere = new THREE.Sphere(
+          new THREE.Vector3(minX + (gx + 0.5) * cellW, 0.15, minZ + (gz + 0.5) * cellD),
+          chunkRad
+        );
+        this.scene.add(chunkMesh);
+      }
+    }
+    tuftGeo.dispose();
   }
 
   // ==========================================================================
@@ -2180,25 +2821,25 @@ export class Garden {
   }
 
   // ==========================================================================
-  // 5. Wooden Cedar Fence (Itabei) Enclosing the Yard
+  // 5. Wooden Cedar Fence (Itabei) Enclosing the Yard (Weathered & Stained)
   // ==========================================================================
   _buildFence() {
     const L = this._layout;
     const fenceMat = new THREE.MeshStandardMaterial({
-      map: this._tex.woodCedar.map,
-      bumpMap: this._tex.woodCedar.bumpMap,
-      bumpScale: 0.02,
-      roughness: 0.85,
+      map: this._tex.woodFence.map,
+      bumpMap: this._tex.woodFence.bumpMap,
+      bumpScale: 0.026,
+      roughness: 0.88,
     });
     const postMat = new THREE.MeshStandardMaterial({
       map: this._tex.woodDark.map,
       bumpMap: this._tex.woodDark.bumpMap,
-      bumpScale: 0.02,
-      roughness: 0.88,
+      bumpScale: 0.024,
+      roughness: 0.9,
     });
     this._wettableMaterials.push(
-      { mat: fenceMat, baseRough: 0.85 },
-      { mat: postMat, baseRough: 0.88 }
+      { mat: fenceMat, baseRough: 0.88 },
+      { mat: postMat, baseRough: 0.9 }
     );
 
     const fenceH = 1.68;
@@ -2215,7 +2856,9 @@ export class Garden {
     ];
 
     const postMatrices = [];
+    const postColors = [];
     const slatMatrices = [];
+    const slatColors = [];
     const railMatrices = [];
     const capSnowMatrices = [];
     const rand = mulberry32(3030);
@@ -2238,9 +2881,11 @@ export class Garden {
         this._dummy.scale.set(1, 1, 1);
         this._dummy.updateMatrix();
         postMatrices.push(this._dummy.matrix.clone());
+        const shade = 0.86 + rand() * 0.22;
+        postColors.push(new THREE.Color(shade, shade * (0.98 + rand() * 0.04), shade * 0.95));
       }
 
-      // Vertical cedar slats
+      // Vertical weathered cedar slats
       const slatSpacing = 0.215;
       const slatCount = Math.floor(len / slatSpacing);
       for (let i = 0; i < slatCount; i++) {
@@ -2249,10 +2894,24 @@ export class Garden {
         const sz = lerp(seg.z1, seg.z2, t);
         const gy = this.getGroundHeight(sx, sz);
         this._dummy.position.set(sx, gy + fenceH * 0.48, sz);
-        this._dummy.rotation.set(0, ang, (rand() - 0.5) * 0.012);
+        this._dummy.rotation.set(0, ang, (rand() - 0.5) * 0.015);
         this._dummy.scale.set(1, 0.96 + rand() * 0.04, 1);
         this._dummy.updateMatrix();
         slatMatrices.push(this._dummy.matrix.clone());
+
+        // Per-slat organic weathering: aged gray-brown, damp darkening near pond/tree/corners
+        const dampPond = 1.0 - smoothstep(4.0, 10.5, Math.hypot(sx - L.pond.x, sz - L.pond.z));
+        const dampTree = 1.0 - smoothstep(5.5, 11.5, Math.hypot(sx - L.treePos.x, sz - L.treePos.z));
+        const grime = Math.max(dampPond * 0.16, dampTree * 0.12);
+        const age = 0.84 + rand() * 0.24 - grime;
+        const grayShift = rand() * 0.08;
+        slatColors.push(
+          new THREE.Color(
+            clamp(age * (1.0 - grayShift * 0.4), 0.62, 1.08),
+            clamp(age * (0.98 + dampPond * 0.05), 0.62, 1.08),
+            clamp(age * (0.93 + grayShift), 0.6, 1.05)
+          )
+        );
       }
 
       // Top cap rail + two horizontal crossbars
@@ -2276,17 +2935,25 @@ export class Garden {
     }
 
     const postMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.13, fenceH + 0.14, 0.13), postMat, postMatrices.length);
-    postMatrices.forEach((m, i) => postMesh.setMatrixAt(i, m));
+    postMatrices.forEach((m, i) => {
+      postMesh.setMatrixAt(i, m);
+      postMesh.setColorAt(i, postColors[i]);
+    });
     postMesh.castShadow = true;
     postMesh.receiveShadow = true;
     postMesh.instanceMatrix.needsUpdate = true;
+    if (postMesh.instanceColor) postMesh.instanceColor.needsUpdate = true;
     this.scene.add(postMesh);
 
     const slatMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, fenceH - 0.08, 0.195), fenceMat, slatMatrices.length);
-    slatMatrices.forEach((m, i) => slatMesh.setMatrixAt(i, m));
+    slatMatrices.forEach((m, i) => {
+      slatMesh.setMatrixAt(i, m);
+      slatMesh.setColorAt(i, slatColors[i]);
+    });
     slatMesh.castShadow = true;
     slatMesh.receiveShadow = true;
     slatMesh.instanceMatrix.needsUpdate = true;
+    if (slatMesh.instanceColor) slatMesh.instanceColor.needsUpdate = true;
     this.scene.add(slatMesh);
 
     const railMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.08, 1.0), postMat, railMatrices.length);
@@ -2681,62 +3348,14 @@ export class Garden {
     treeGroup.add(bSnowMesh);
     this._snowCapMeshes.push(bSnowMesh);
 
-    // Crossed botanical cluster card geometry (2 intersecting slightly curved planes -> rich volume from every angle!)
-    const makeCrossedCardGeo = () => {
-      const p1 = new THREE.PlaneGeometry(1.15, 1.15, 2, 2);
-      const p2 = new THREE.PlaneGeometry(1.15, 1.15, 2, 2);
-      p2.rotateY(Math.PI * 0.5);
-      p2.rotateX(0.28);
-
-      // Gentle cup curvature on each plane
-      for (const p of [p1, p2]) {
-        const pa = p.attributes.position;
-        for (let i = 0; i < pa.count; i++) {
-          const x = pa.getX(i);
-          const y = pa.getY(i);
-          pa.setZ(i, pa.getZ(i) - (x * x + y * y) * 0.18);
-        }
-        p.computeVertexNormals();
-      }
-
-      const geo = new THREE.BufferGeometry();
-      const pos1 = p1.attributes.position.array;
-      const pos2 = p2.attributes.position.array;
-      const norm1 = p1.attributes.normal.array;
-      const norm2 = p2.attributes.normal.array;
-      const uv1 = p1.attributes.uv.array;
-      const uv2 = p2.attributes.uv.array;
-      const idx1 = p1.index.array;
-      const idx2 = p2.index.array;
-
-      const mergedPos = new Float32Array(pos1.length + pos2.length);
-      mergedPos.set(pos1, 0);
-      mergedPos.set(pos2, pos1.length);
-
-      const mergedNorm = new Float32Array(norm1.length + norm2.length);
-      mergedNorm.set(norm1, 0);
-      mergedNorm.set(norm2, norm1.length);
-
-      const mergedUv = new Float32Array(uv1.length + uv2.length);
-      mergedUv.set(uv1, 0);
-      mergedUv.set(uv2, uv1.length);
-
-      const vOffset = pos1.length / 3;
-      const mergedIdx = new Uint16Array(idx1.length + idx2.length);
-      mergedIdx.set(idx1, 0);
-      for (let i = 0; i < idx2.length; i++) mergedIdx[idx1.length + i] = idx2[i] + vOffset;
-
-      geo.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
-      geo.setAttribute('normal', new THREE.BufferAttribute(mergedNorm, 3));
-      geo.setAttribute('uv', new THREE.BufferAttribute(mergedUv, 2));
-      geo.setIndex(new THREE.BufferAttribute(mergedIdx, 1));
-      return geo;
-    };
-
-    const cardGeo = makeCrossedCardGeo();
+    // Volumetric 3-plane botanical leaf-sprig card geometry (920 finer cards around twigs!)
+    const cardGeo = makeVolumetricLeafCardGeo(0.78);
     const u = this._sharedUniforms;
 
-    const attachCanopySway = (mat, scaleUniform, tintUniformA, tintUniformB) => {
+    const attachCanopySway = (mat, scaleUniform, tintUniformA, tintUniformB, applyShade = true, cacheKey = '') => {
+      if (cacheKey) {
+        mat.customProgramCacheKey = () => cacheKey;
+      }
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uTime = u.uTime;
         shader.uniforms.uWindStrength = u.uWindStrength;
@@ -2751,40 +3370,43 @@ export class Garden {
             '#include <common>',
             `#include <common>
             attribute float aLeafRand;
+            attribute float aCanopyShade;
             uniform float uTime;
             uniform float uWindStrength;
             uniform float uCanopyScale;
-            varying float vLeafRand;`
+            varying float vLeafRand;
+            varying float vCanopyShade;`
           )
           .replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
             vLeafRand = aLeafRand;
+            vCanopyShade = aCanopyShade;
             transformed *= uCanopyScale;
             vec3 instP = vec3(0.0);
             #ifdef USE_INSTANCING
               instP = instanceMatrix[3].xyz;
             #endif
             float flutter = sin(uTime * (1.8 + uWindStrength * 2.4) + instP.x * 1.4 + instP.z * 1.2 + aLeafRand * 6.2831);
-            float amp = (0.04 + uWindStrength * 0.16) * uCanopyScale;
+            float amp = (0.035 + uWindStrength * 0.14) * uCanopyScale;
             transformed.x += flutter * amp;
             transformed.y += cos(uTime * 1.5 + instP.y + aLeafRand * 6.2831) * amp * 0.55;`
           );
 
-        if (tintUniformA) {
+        if (applyShade) {
           shader.fragmentShader = shader.fragmentShader
             .replace(
               '#include <common>',
               `#include <common>
-              uniform vec3 uTintA;
-              uniform vec3 uTintB;
-              varying float vLeafRand;`
+              ${tintUniformA ? 'uniform vec3 uTintA; uniform vec3 uTintB;' : ''}
+              varying float vLeafRand;
+              varying float vCanopyShade;`
             )
             .replace(
               '#include <color_fragment>',
               `#include <color_fragment>
-              vec3 seasonCol = mix(uTintA, uTintB, vLeafRand);
-              diffuseColor.rgb *= seasonCol * 1.18;`
+              ${tintUniformA ? 'vec3 seasonCol = mix(uTintA, uTintB, vLeafRand); diffuseColor.rgb *= seasonCol * 1.18;' : ''}
+              diffuseColor.rgb *= vCanopyShade;`
             );
         }
       };
@@ -2798,41 +3420,42 @@ export class Garden {
     // Blossom canopy (Spring Sakura)
     const sakuraMat = new THREE.MeshStandardMaterial({
       map: this._tex.sakuraCluster,
-      alphaTest: 0.36,
+      alphaTest: 0.34,
       side: THREE.DoubleSide,
-      roughness: 0.72,
+      roughness: 0.78,
     });
-    attachCanopySway(sakuraMat, this._sakuraScaleU, null, null);
+    attachCanopySway(sakuraMat, this._sakuraScaleU, null, null, true, 'hero_sakura_std');
 
     const sakuraDepthMat = new THREE.MeshDepthMaterial({
       depthPacking: THREE.RGBADepthPacking,
       map: this._tex.sakuraCluster,
-      alphaTest: 0.36,
+      alphaTest: 0.34,
       side: THREE.DoubleSide,
     });
-    attachCanopySway(sakuraDepthMat, this._sakuraScaleU, null, null);
+    attachCanopySway(sakuraDepthMat, this._sakuraScaleU, null, null, false, 'hero_sakura_depth');
 
     // Leaf canopy (Hazakura / Summer / Autumn)
     const leafMat = new THREE.MeshStandardMaterial({
       map: this._tex.leafCluster,
-      alphaTest: 0.38,
+      alphaTest: 0.34,
       side: THREE.DoubleSide,
-      roughness: 0.74,
+      roughness: 0.8,
     });
-    attachCanopySway(leafMat, this._leafScaleU, this._treeLeafColorAU, this._treeLeafColorBU);
+    attachCanopySway(leafMat, this._leafScaleU, this._treeLeafColorAU, this._treeLeafColorBU, true, 'hero_leaf_std');
 
     const leafDepthMat = new THREE.MeshDepthMaterial({
       depthPacking: THREE.RGBADepthPacking,
       map: this._tex.leafCluster,
-      alphaTest: 0.38,
+      alphaTest: 0.34,
       side: THREE.DoubleSide,
     });
-    attachCanopySway(leafDepthMat, this._leafScaleU, null, null);
+    attachCanopySway(leafDepthMat, this._leafScaleU, null, null, false, 'hero_leaf_depth');
 
-    const clusterCount = 460;
+    const clusterCount = 920;
     const blossomGeo = cardGeo.clone();
     const leafGeo = cardGeo.clone();
     const leafRands = new Float32Array(clusterCount);
+    const leafShades = new Float32Array(clusterCount);
 
     this._sakuraCanopy = new THREE.InstancedMesh(blossomGeo, sakuraMat, clusterCount);
     this._leafCanopy = new THREE.InstancedMesh(leafGeo, leafMat, clusterCount);
@@ -2846,19 +3469,19 @@ export class Garden {
     for (let i = 0; i < clusterCount; i++) {
       const anchor = canopyPoints[i % canopyPoints.length];
       const theta = rand() * Math.PI * 2;
-      const rad = Math.pow(rand(), 0.6) * 1.35;
-      const dy = (rand() - 0.42) * 1.15;
-      const s = 0.72 + rand() * 0.72;
+      const rad = Math.pow(rand(), 0.62) * 1.15;
+      const dy = (rand() - 0.44) * 0.95;
+      const s = 0.66 + rand() * 0.64;
 
-      this._dummy.position.set(
-        anchor.x + Math.cos(theta) * rad,
-        anchor.y + dy,
-        anchor.z + Math.sin(theta) * rad
-      );
+      const lx = anchor.x + Math.cos(theta) * rad;
+      const ly = anchor.y + dy;
+      const lz = anchor.z + Math.sin(theta) * rad;
+
+      this._dummy.position.set(lx, ly, lz);
       this._dummy.rotation.set(
-        (rand() - 0.5) * 0.9,
+        (rand() - 0.5) * 1.1,
         rand() * Math.PI * 2,
-        (rand() - 0.5) * 0.9
+        (rand() - 0.5) * 1.1
       );
       this._dummy.scale.setScalar(s);
       this._dummy.updateMatrix();
@@ -2866,11 +3489,19 @@ export class Garden {
       this._sakuraCanopy.setMatrixAt(i, this._dummy.matrix);
       this._leafCanopy.setMatrixAt(i, this._dummy.matrix);
       leafRands[i] = rand();
+
+      // Crown 3D ambient occlusion: darker interior/underside, sunlit outer/top clusters
+      const relH = clamp((ly - 3.6) / 4.2, 0, 1);
+      const relOut = clamp(Math.hypot(lx, lz) / 4.8, 0, 1);
+      leafShades[i] = 0.64 + 0.30 * relH + 0.14 * relOut;
     }
     blossomGeo.setAttribute('aLeafRand', new THREE.InstancedBufferAttribute(leafRands, 1));
     leafGeo.setAttribute('aLeafRand', new THREE.InstancedBufferAttribute(leafRands, 1));
+    blossomGeo.setAttribute('aCanopyShade', new THREE.InstancedBufferAttribute(leafShades, 1));
+    leafGeo.setAttribute('aCanopyShade', new THREE.InstancedBufferAttribute(leafShades, 1));
     this._sakuraCanopy.instanceMatrix.needsUpdate = true;
     this._leafCanopy.instanceMatrix.needsUpdate = true;
+    cardGeo.dispose();
 
     treeGroup.add(this._sakuraCanopy);
     treeGroup.add(this._leafCanopy);
@@ -3467,29 +4098,175 @@ export class Garden {
       this._gardenLanternLights.push(pt);
     });
 
-    // Corner Ornamental Shrubs (soften fence corners, shift color by season)
-    this._shrubMat = new THREE.MeshStandardMaterial({
-      color: SEASON_COLORS.shrub.spring.clone(),
-      roughness: 0.88,
-    });
-    const bushGeo = new THREE.DodecahedronGeometry(0.6, 1);
+    // Corner Ornamental Shrubs (woody interior stems + InstancedMesh small alpha leaf-cluster cards)
+    const shrubBranchMatrices = [];
+    const shrubCardMatrices = [];
+    const shrubLeafRands = [];
+    const shrubLeafShades = [];
+    const upVec = new THREE.Vector3(0, 1, 0);
+    const tmpDir = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+
     for (const sh of L.cornerShrubs) {
       const gy = this.getGroundHeight(sh.x, sh.z);
-      const bushGroup = new THREE.Group();
-      bushGroup.position.set(sh.x, gy, sh.z);
-      for (let k = 0; k < 4; k++) {
-        const puff = new THREE.Mesh(bushGeo, this._shrubMat);
-        const a = (k / 4) * Math.PI * 2 + rand();
-        const r = k === 0 ? 0 : 0.42;
-        const sc = k === 0 ? 1.2 : 0.72 + rand() * 0.35;
-        puff.scale.set(sc, sc * 0.82, sc);
-        puff.position.set(Math.cos(a) * r, sc * 0.42, Math.sin(a) * r);
-        puff.castShadow = true;
-        puff.receiveShadow = true;
-        bushGroup.add(puff);
+      const bushR = sh.r * 0.92;
+      const bushH = sh.r * 0.96;
+
+      // Woody branching interior stems
+      const stemTips = [];
+      const stemCount = 8;
+      for (let s = 0; s < stemCount; s++) {
+        const a = (s / stemCount) * Math.PI * 2 + (rand() - 0.5) * 0.4;
+        const spread = bushR * (0.35 + rand() * 0.45);
+        const topY = bushH * (0.48 + rand() * 0.36);
+        const ex = sh.x + Math.cos(a) * spread;
+        const ey = gy + topY;
+        const ez = sh.z + Math.sin(a) * spread;
+        tmpDir.set(ex - sh.x, ey - (gy - 0.04), ez - sh.z);
+        const len = tmpDir.length();
+        tmpDir.normalize();
+        tmpQuat.setFromUnitVectors(upVec, tmpDir);
+
+        this._dummy.position.set(sh.x, gy - 0.04, sh.z);
+        this._dummy.quaternion.copy(tmpQuat);
+        this._dummy.scale.set(0.032, len, 0.032);
+        this._dummy.updateMatrix();
+        shrubBranchMatrices.push(this._dummy.matrix.clone());
+        stemTips.push(new THREE.Vector3(ex, ey, ez));
       }
-      this.scene.add(bushGroup);
+      stemTips.push(new THREE.Vector3(sh.x, gy + bushH * 0.78, sh.z));
+
+      // ~86 small layered leaf-sprig cards per garden shrub
+      const cardsPerShrub = 86;
+      for (let k = 0; k < cardsPerShrub; k++) {
+        const anchor = stemTips[k % stemTips.length];
+        const th = rand() * Math.PI * 2;
+        const rr = Math.pow(rand(), 0.58) * bushR * 0.62;
+        const dy = (rand() - 0.45) * bushH * 0.55;
+        const lx = anchor.x + Math.cos(th) * rr;
+        const ly = Math.max(gy + 0.14, anchor.y + dy);
+        const lz = anchor.z + Math.sin(th) * rr;
+
+        const sc = 0.62 + rand() * 0.58;
+        this._dummy.position.set(lx, ly, lz);
+        this._dummy.rotation.set((rand() - 0.5) * 1.0, rand() * Math.PI * 2, (rand() - 0.5) * 1.0);
+        this._dummy.scale.setScalar(sc);
+        this._dummy.updateMatrix();
+        shrubCardMatrices.push(this._dummy.matrix.clone());
+
+        shrubLeafRands.push(rand());
+        const relY = clamp((ly - gy) / (bushH * 1.15), 0, 1);
+        const relR = clamp(Math.hypot(lx - sh.x, lz - sh.z) / (bushR * 1.05), 0, 1);
+        shrubLeafShades.push(0.58 + 0.34 * relY + 0.16 * relR);
+      }
     }
+
+    const stemCyl = new THREE.CylinderGeometry(0.45, 1.0, 1.0, 5);
+    stemCyl.translate(0, 0.5, 0);
+    const shrubWoodMat = new THREE.MeshStandardMaterial({ color: 0x433326, roughness: 0.94 });
+    const shrubBranches = new THREE.InstancedMesh(stemCyl, shrubWoodMat, shrubBranchMatrices.length);
+    shrubBranches.frustumCulled = false;
+    for (let i = 0; i < shrubBranchMatrices.length; i++) {
+      shrubBranches.setMatrixAt(i, shrubBranchMatrices[i]);
+    }
+    shrubBranches.castShadow = true;
+    shrubBranches.receiveShadow = true;
+    shrubBranches.instanceMatrix.needsUpdate = true;
+    this.scene.add(shrubBranches);
+
+    const shrubCardGeo = makeVolumetricLeafCardGeo(0.44);
+    shrubCardGeo.setAttribute('aLeafRand', new THREE.InstancedBufferAttribute(new Float32Array(shrubLeafRands), 1));
+    shrubCardGeo.setAttribute('aCanopyShade', new THREE.InstancedBufferAttribute(new Float32Array(shrubLeafShades), 1));
+
+    this._shrubLeafUniforms = {
+      uShrubA: { value: SEASON_COLORS.shrub.spring.clone() },
+      uShrubB: { value: SEASON_COLORS.shrubB.spring.clone() },
+    };
+
+    const u = this._sharedUniforms;
+    const attachShrubSway = (mat, isDepth) => {
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = u.uTime;
+        shader.uniforms.uWindStrength = u.uWindStrength;
+        if (!isDepth) {
+          shader.uniforms.uSnowCover = u.uSnowCover;
+          shader.uniforms.uShrubA = this._shrubLeafUniforms.uShrubA;
+          shader.uniforms.uShrubB = this._shrubLeafUniforms.uShrubB;
+        }
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            `#include <common>
+            attribute float aLeafRand;
+            attribute float aCanopyShade;
+            uniform float uTime;
+            uniform float uWindStrength;
+            varying float vLeafRand;
+            varying float vCanopyShade;`
+          )
+          .replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>
+            vLeafRand = aLeafRand;
+            vCanopyShade = aCanopyShade;
+            vec3 instP = vec3(0.0);
+            #ifdef USE_INSTANCING
+              instP = instanceMatrix[3].xyz;
+            #endif
+            float flutter = sin(uTime * (2.1 + uWindStrength * 2.5) + instP.x * 1.8 + instP.z * 1.6 + aLeafRand * 6.2831);
+            float amp = 0.012 + uWindStrength * 0.045;
+            transformed.x += flutter * amp;
+            transformed.y += cos(uTime * 1.7 + instP.z + aLeafRand * 6.2831) * amp * 0.5;`
+          );
+
+        if (!isDepth) {
+          shader.fragmentShader = shader.fragmentShader
+            .replace(
+              '#include <common>',
+              `#include <common>
+              uniform vec3 uShrubA;
+              uniform vec3 uShrubB;
+              uniform float uSnowCover;
+              varying float vLeafRand;
+              varying float vCanopyShade;`
+            )
+            .replace(
+              '#include <color_fragment>',
+              `#include <color_fragment>
+              vec3 shCol = mix(uShrubA, uShrubB, vLeafRand) * 1.15 * vCanopyShade;
+              float topSnow = smoothstep(0.80, 1.05, vCanopyShade) * smoothstep(0.12, 0.80, uSnowCover);
+              diffuseColor.rgb = mix(diffuseColor.rgb * shCol, vec3(0.92, 0.95, 0.99), topSnow * 0.78);`
+            );
+        }
+      };
+    };
+
+    const shrubLeafMat = new THREE.MeshStandardMaterial({
+      map: this._tex.shrubCluster,
+      alphaTest: 0.34,
+      side: THREE.DoubleSide,
+      roughness: 0.84,
+    });
+    attachShrubSway(shrubLeafMat, false);
+
+    const shrubDepthMat = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking,
+      map: this._tex.shrubCluster,
+      alphaTest: 0.34,
+      side: THREE.DoubleSide,
+    });
+    attachShrubSway(shrubDepthMat, true);
+
+    this._shrubLeafMesh = new THREE.InstancedMesh(shrubCardGeo, shrubLeafMat, shrubCardMatrices.length);
+    this._shrubLeafMesh.customDepthMaterial = shrubDepthMat;
+    this._shrubLeafMesh.castShadow = true;
+    this._shrubLeafMesh.receiveShadow = true;
+    this._shrubLeafMesh.frustumCulled = false;
+    for (let i = 0; i < shrubCardMatrices.length; i++) {
+      this._shrubLeafMesh.setMatrixAt(i, shrubCardMatrices[i]);
+    }
+    this._shrubLeafMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this._shrubLeafMesh);
 
     // Toy Ball (at poi.toy)
     const ballMat = new THREE.MeshStandardMaterial({
@@ -3505,6 +4282,332 @@ export class Garden {
     this._toyMesh.castShadow = true;
     this._toyMesh.receiveShadow = true;
     this.scene.add(this._toyMesh);
+  }
+
+  // ==========================================================================
+  // 10b. Photorealistic Ground Details (Fallen Leaves, Pebbles & Tiny Twigs)
+  // ==========================================================================
+  _buildGroundDetails() {
+    const L = this._layout;
+    const rand = mulberry32(7777);
+    const u = this._sharedUniforms;
+
+    const isInsideWaterOrHouse = (x, z) => {
+      if (x < L.fenceMinX + 0.15 || x > L.fenceMaxX - 0.15 || z > L.fenceMaxZ - 0.15 || z < L.houseFrontZ - 0.1) {
+        return true;
+      }
+      const pd = Math.hypot((x - L.pond.x) / (L.pond.rx * 0.96), (z - L.pond.z) / (L.pond.rz * 0.96));
+      if (pd < 1.0) return true;
+      if (Math.hypot(x - L.doghousePos.x, z - L.doghousePos.z) < 0.95) return true;
+      if (Math.hypot(x - L.treePos.x, z - L.treePos.z) < 0.72) return true;
+      return false;
+    };
+
+    // --- 1. Small Fallen Leaves resting on ground & turf (~1,100) ---
+    const gLeafGeo = new THREE.BufferGeometry();
+    // Gently cupped natural leaf silhouette (6 verts, 4 tris, ~5.5cm long)
+    const leafPos = new Float32Array([
+       0.000, 0.004, -0.028,
+      -0.017, 0.008, -0.004,
+       0.000, 0.002,  0.000,
+       0.017, 0.008, -0.004,
+      -0.011, 0.007,  0.016,
+       0.000, 0.010,  0.030,
+       0.011, 0.007,  0.016,
+    ]);
+    const leafIdx = [
+      0, 1, 2,
+      0, 2, 3,
+      1, 4, 2,
+      2, 6, 3,
+      4, 5, 2,
+      2, 5, 6,
+    ];
+    gLeafGeo.setAttribute('position', new THREE.BufferAttribute(leafPos, 3));
+    gLeafGeo.setIndex(leafIdx);
+    gLeafGeo.computeVertexNormals();
+
+    this._groundLeafUniforms = {
+      uLeafColA: { value: new THREE.Color('#b6381e') },
+      uLeafColB: { value: new THREE.Color('#d27622') },
+      uLeafColC: { value: new THREE.Color('#7a572c') },
+      uPetalCol: { value: new THREE.Color('#f7c6d8') },
+      uPetalMix: { value: 0.0 },
+    };
+
+    const gLeafMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.86,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+    this._wettableMaterials.push({ mat: gLeafMat, baseRough: 0.86 });
+
+    const glU = this._groundLeafUniforms;
+    gLeafMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uLeafColA = glU.uLeafColA;
+      shader.uniforms.uLeafColB = glU.uLeafColB;
+      shader.uniforms.uLeafColC = glU.uLeafColC;
+      shader.uniforms.uPetalCol = glU.uPetalCol;
+      shader.uniforms.uPetalMix = glU.uPetalMix;
+      shader.uniforms.uSnowCover = u.uSnowCover;
+      shader.uniforms.uWetness = u.uWetness;
+
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          attribute vec2 aGLeafVar;
+          varying vec2 vGLeafVar;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          vGLeafVar = aGLeafVar;`
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform vec3 uLeafColA;
+          uniform vec3 uLeafColB;
+          uniform vec3 uLeafColC;
+          uniform vec3 uPetalCol;
+          uniform float uPetalMix;
+          uniform float uSnowCover;
+          uniform float uWetness;
+          varying vec2 vGLeafVar;`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          vec3 col = vGLeafVar.x < 0.45
+            ? mix(uLeafColA, uLeafColB, vGLeafVar.x / 0.45)
+            : mix(uLeafColB, uLeafColC, (vGLeafVar.x - 0.45) / 0.55);
+          // Spring blossom petals near tree & scattered lawn
+          float isPetal = step(0.35, vGLeafVar.y) * uPetalMix;
+          col = mix(col, uPetalCol * (0.9 + 0.16 * vGLeafVar.x), isPetal);
+          col *= mix(1.0, 0.72, uWetness);
+          col = mix(col, vec3(0.91, 0.94, 0.98), smoothstep(0.12, 0.78, uSnowCover) * 0.82);
+          diffuseColor.rgb = col;`
+        );
+    };
+
+    const gLeafTotal = 1100;
+    this._groundLeafTotal = gLeafTotal;
+    const gLeafVar = new Float32Array(gLeafTotal * 2);
+    this._groundLeafMesh = new THREE.InstancedMesh(gLeafGeo, gLeafMat, gLeafTotal);
+    this._groundLeafMesh.receiveShadow = true;
+    this._groundLeafMesh.castShadow = false;
+    this._groundLeafMesh.frustumCulled = false;
+
+    let gPlaced = 0;
+    let gAttempts = 0;
+    while (gPlaced < gLeafTotal && gAttempts < gLeafTotal * 4) {
+      gAttempts++;
+      let x, z;
+      let petalWeight = 0.0;
+      const bucket = gPlaced % 10;
+
+      if (bucket < 4) {
+        // Clustered around hero tree canopy drip zone
+        const a = rand() * Math.PI * 2;
+        const r = 0.85 + Math.pow(rand(), 0.7) * 5.6;
+        x = L.treePos.x + Math.cos(a) * r;
+        z = L.treePos.z + Math.sin(a) * r;
+        petalWeight = 0.9;
+      } else if (bucket < 7) {
+        // Wind-blown drifts along fence edges & near shrubs
+        const side = Math.floor(rand() * 3);
+        if (side === 0) {
+          x = L.fenceMinX + 0.25 + rand() * 1.45;
+          z = -9.5 + rand() * 23.0;
+        } else if (side === 1) {
+          x = L.fenceMaxX - 0.25 - rand() * 1.45;
+          z = -9.5 + rand() * 23.0;
+        } else {
+          x = -13.5 + rand() * 27.0;
+          z = L.fenceMaxZ - 0.25 - rand() * 1.45;
+        }
+        petalWeight = rand() * 0.6;
+      } else {
+        // Light scatter across yard, dirt patches & near stepping stones
+        x = -13.4 + rand() * 26.8;
+        z = -9.8 + rand() * 23.2;
+        petalWeight = rand() * 0.7;
+      }
+
+      if (isInsideWaterOrHouse(x, z)) continue;
+
+      const gy = this.getGroundHeight(x, z);
+      const soil = this._getSoilExposure(x, z);
+      const hover = soil > 0.45 ? 0.008 + rand() * 0.01 : 0.016 + rand() * 0.022;
+      const sc = 0.72 + rand() * 0.85;
+
+      this._dummy.position.set(x, gy + hover, z);
+      this._dummy.rotation.set(
+        (rand() - 0.5) * 0.36,
+        rand() * Math.PI * 2,
+        (rand() - 0.5) * 0.36
+      );
+      this._dummy.scale.set(sc * (0.85 + rand() * 0.3), sc, sc * (0.85 + rand() * 0.35));
+      this._dummy.updateMatrix();
+      this._groundLeafMesh.setMatrixAt(gPlaced, this._dummy.matrix);
+
+      gLeafVar[gPlaced * 2] = rand();
+      gLeafVar[gPlaced * 2 + 1] = petalWeight;
+      gPlaced++;
+    }
+    this._groundLeafTotal = gPlaced;
+    this._groundLeafMesh.count = gPlaced;
+    gLeafGeo.setAttribute('aGLeafVar', new THREE.InstancedBufferAttribute(gLeafVar, 2));
+    this._groundLeafMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this._groundLeafMesh);
+
+    // --- 2. Natural Small Pebbles & Gravel (~560) ---
+    const pebbleGeo = new THREE.IcosahedronGeometry(0.028, 1);
+    const pp = pebbleGeo.attributes.position;
+    for (let i = 0; i < pp.count; i++) {
+      const vx = pp.getX(i);
+      const vy = pp.getY(i);
+      const vz = pp.getZ(i);
+      const n = 0.84 + 0.24 * Math.sin(vx * 48.0 + vy * 34.0) * Math.cos(vz * 42.0);
+      pp.setXYZ(i, vx * n, vy * n * 0.52, vz * n * 1.15);
+    }
+    pebbleGeo.computeVertexNormals();
+
+    const pebbleMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.86,
+      metalness: 0.02,
+    });
+    this._wettableMaterials.push({ mat: pebbleMat, baseRough: 0.86 });
+
+    const pebblePalette = [
+      new THREE.Color('#8e8b82'),
+      new THREE.Color('#707375'),
+      new THREE.Color('#a8a499'),
+      new THREE.Color('#7d705e'),
+      new THREE.Color('#5a5b58'),
+      new THREE.Color('#968b7a'),
+    ];
+    const dirtCenters = [
+      { x: -3.2, z: 1.9, r: 1.1 },
+      { x: 3.1, z: -0.9, r: 1.0 },
+      { x: -1.1, z: 6.4, r: 1.15 },
+      { x: 9.2, z: -0.8, r: 1.0 },
+      { x: -8.8, z: 1.2, r: 0.95 },
+      { x: L.doghousePos.x + 0.65, z: L.doghousePos.z + 1.15, r: 1.2 },
+      { x: L.treePos.x, z: L.treePos.z, r: 1.85 },
+    ];
+
+    const pebbleCount = 560;
+    this._pebbleMesh = new THREE.InstancedMesh(pebbleGeo, pebbleMat, pebbleCount);
+    this._pebbleMesh.receiveShadow = true;
+    this._pebbleMesh.castShadow = false;
+    this._pebbleMesh.frustumCulled = false;
+
+    let pPlaced = 0;
+    let pAttempts = 0;
+    while (pPlaced < pebbleCount && pAttempts < pebbleCount * 4) {
+      pAttempts++;
+      let x, z;
+      const mode = pPlaced % 10;
+
+      if (mode < 3) {
+        // Around stepping stones
+        const st = L.steppingStones[Math.floor(rand() * L.steppingStones.length)];
+        const a = rand() * Math.PI * 2;
+        const r = 1.02 + rand() * 0.55;
+        x = st.x + Math.cos(a) * st.rx * r;
+        z = st.z + Math.sin(a) * st.rz * r;
+      } else if (mode < 6) {
+        // On & around exposed dirt patches
+        const dc = dirtCenters[Math.floor(rand() * dirtCenters.length)];
+        const a = rand() * Math.PI * 2;
+        const r = Math.sqrt(rand()) * dc.r;
+        x = dc.x + Math.cos(a) * r;
+        z = dc.z + Math.sin(a) * r;
+      } else if (mode < 8) {
+        // Along pond rim & engawa drip-line
+        if (rand() < 0.5) {
+          const a = rand() * Math.PI * 2;
+          const r = 1.03 + rand() * 0.28;
+          x = L.pond.x + Math.cos(a) * L.pond.rx * r;
+          z = L.pond.z + Math.sin(a) * L.pond.rz * r;
+        } else {
+          x = -8.5 + rand() * 17.0;
+          z = -10.25 + rand() * 0.75;
+        }
+      } else {
+        // Scattered subtly near fence & yard
+        x = -13.6 + rand() * 27.2;
+        z = -9.8 + rand() * 23.4;
+      }
+
+      if (isInsideWaterOrHouse(x, z)) continue;
+
+      const gy = this.getGroundHeight(x, z);
+      const s = 0.55 + Math.pow(rand(), 1.4) * 1.55;
+      this._dummy.position.set(x, gy + 0.006 * s, z);
+      this._dummy.rotation.set(rand() * 0.5, rand() * Math.PI * 2, rand() * 0.5);
+      this._dummy.scale.set(s * (0.8 + rand() * 0.45), s * (0.65 + rand() * 0.4), s * (0.8 + rand() * 0.45));
+      this._dummy.updateMatrix();
+      this._pebbleMesh.setMatrixAt(pPlaced, this._dummy.matrix);
+
+      const baseC = pebblePalette[Math.floor(rand() * pebblePalette.length)];
+      this._tmpColor.copy(baseC).multiplyScalar(0.84 + rand() * 0.3);
+      this._pebbleMesh.setColorAt(pPlaced, this._tmpColor);
+      pPlaced++;
+    }
+    this._pebbleMesh.count = pPlaced;
+    this._pebbleMesh.instanceMatrix.needsUpdate = true;
+    if (this._pebbleMesh.instanceColor) this._pebbleMesh.instanceColor.needsUpdate = true;
+    this.scene.add(this._pebbleMesh);
+
+    // --- 3. Tiny Fallen Dry Twigs under Tree, Shrubs & Fence (~90) ---
+    const twigGeo = new THREE.CylinderGeometry(0.0035, 0.0065, 0.17, 4);
+    twigGeo.rotateZ(Math.PI / 2);
+    const twigMat = new THREE.MeshStandardMaterial({ color: 0x4c3a2b, roughness: 0.94 });
+    this._wettableMaterials.push({ mat: twigMat, baseRough: 0.94 });
+
+    const twigCount = 90;
+    this._twigMesh = new THREE.InstancedMesh(twigGeo, twigMat, twigCount);
+    this._twigMesh.receiveShadow = true;
+    this._twigMesh.frustumCulled = false;
+
+    let tPlaced = 0;
+    let tAttempts = 0;
+    while (tPlaced < twigCount && tAttempts < twigCount * 4) {
+      tAttempts++;
+      let x, z;
+      if (tPlaced % 3 !== 0) {
+        const a = rand() * Math.PI * 2;
+        const r = 0.9 + Math.sqrt(rand()) * 4.6;
+        x = L.treePos.x + Math.cos(a) * r;
+        z = L.treePos.z + Math.sin(a) * r;
+      } else {
+        const sh = L.cornerShrubs[Math.floor(rand() * L.cornerShrubs.length)];
+        const a = rand() * Math.PI * 2;
+        const r = 0.4 + rand() * 1.8;
+        x = sh.x + Math.cos(a) * r;
+        z = sh.z + Math.sin(a) * r;
+      }
+      if (isInsideWaterOrHouse(x, z)) continue;
+
+      const gy = this.getGroundHeight(x, z);
+      const lenS = 0.65 + rand() * 0.95;
+      this._dummy.position.set(x, gy + 0.012, z);
+      this._dummy.rotation.set((rand() - 0.5) * 0.16, rand() * Math.PI * 2, (rand() - 0.5) * 0.16);
+      this._dummy.scale.set(lenS, 0.8 + rand() * 0.5, 0.8 + rand() * 0.5);
+      this._dummy.updateMatrix();
+      this._twigMesh.setMatrixAt(tPlaced, this._dummy.matrix);
+      tPlaced++;
+    }
+    this._twigMesh.count = tPlaced;
+    this._twigMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this._twigMesh);
   }
 
   // ==========================================================================
@@ -4240,26 +5343,23 @@ export class Garden {
     blendSeasonColor(this._sharedUniforms.uGrassTipColor.value, SEASON_COLORS.grassTip, weights);
     blendSeasonColor(this._sharedUniforms.uGroundColor.value, SEASON_COLORS.groundBase, weights);
 
-    // 2. Shrubs, reeds & distant hills
-    blendSeasonColor(this._shrubMat.color, SEASON_COLORS.shrub, weights).lerp(
-      this._tmpColor.set('#dde6f0'),
-      this.snowCover * 0.65
-    );
+    // 2. Shrubs, reeds, distant hills & neighborhood background trees
+    blendSeasonColor(this._shrubLeafUniforms.uShrubA.value, SEASON_COLORS.shrub, weights);
+    blendSeasonColor(this._shrubLeafUniforms.uShrubB.value, SEASON_COLORS.shrubB, weights);
     blendSeasonColor(this._hillMat.color, SEASON_COLORS.distantHill, weights).lerp(
       this._tmpColor.set('#d6e0ea'),
       this.snowCover * 0.75
     );
-    this._bgTreeCrownMat.color.copy(this._shrubMat.color).multiplyScalar(0.88);
-    this._reedMat.color.copy(this._sharedUniforms.uGrassTipColor.value).multiplyScalar(0.8);
+    this._reedMat.color.copy(this._sharedUniforms.uGrassTipColor.value).multiplyScalar(0.84);
 
-    // 3. Hero Tree: Sakura Full Bloom -> Hazakura -> Summer Green -> Autumn Foliage -> Winter Bare
+    // 3. Hero Tree & Background Trees: Sakura Full Bloom -> Hazakura -> Summer Green -> Autumn Foliage -> Winter Bare
     // Spring spans approx dayOfYear 60..151 (Mar 1 - May 31)
+    const bloomRamp = smoothstep(58, 82, dayOfYear) * (1.0 - smoothstep(108, 142, dayOfYear));
     let sakuraScale = 0.0;
     let leafScale = 0.0;
 
     if (weights.spring > 0.01) {
       // Peak sakura bloom around day 75..112, fading into hazakura day 112..145
-      const bloomRamp = smoothstep(58, 82, dayOfYear) * (1.0 - smoothstep(108, 142, dayOfYear));
       sakuraScale = Math.max(sakuraScale, bloomRamp * weights.spring * 1.12);
       // Young green leaves emerge in late spring (hazakura)
       const hazakura = smoothstep(102, 134, dayOfYear);
@@ -4284,6 +5384,40 @@ export class Garden {
 
     blendSeasonColor(this._treeLeafColorAU.value, SEASON_COLORS.treeLeafA, weights);
     blendSeasonColor(this._treeLeafColorBU.value, SEASON_COLORS.treeLeafB, weights);
+
+    // Sync neighborhood background tree leaf cards with seasonal palette
+    this._bgTreeLeafUniforms.uDecidA.value.copy(this._treeLeafColorAU.value).multiplyScalar(0.92);
+    this._bgTreeLeafUniforms.uDecidB.value.copy(this._treeLeafColorBU.value).multiplyScalar(0.92);
+    blendSeasonColor(this._bgTreeLeafUniforms.uEvergreen.value, SEASON_COLORS.bgEvergreen, weights);
+    this._bgTreeLeafUniforms.uSakuraMix.value = clamp(bloomRamp * weights.spring * 1.15, 0, 1);
+    this._bgTreeLeafUniforms.uDecidScale.value = lerp(1.0, 0.24, smoothstep(0.05, 0.85, weights.winter));
+
+    // Sync fallen ground leaves color & seasonal density (vivid autumn carpet, spring petals, sparse summer litter)
+    if (this._groundLeafMesh && this._groundLeafUniforms) {
+      const springPetal = clamp(bloomRamp * weights.spring * 1.25, 0, 1);
+      const leafDensity = clamp(
+        weights.autumn * 1.0 +
+          weights.winter * 0.56 +
+          weights.spring * (0.28 + springPetal * 0.42) +
+          weights.summer * 0.24,
+        0.2,
+        1.0
+      );
+      this._groundLeafMesh.count = Math.floor(this._groundLeafTotal * leafDensity);
+      this._groundLeafUniforms.uPetalMix.value = springPetal;
+
+      // Ground leaf tones shift from vivid crimson/orange/ochre in autumn to weathered dry brown in other seasons
+      const autumnW = weights.autumn;
+      this._groundLeafUniforms.uLeafColA.value
+        .set('#6a5034')
+        .lerp(this._tmpColor.set('#b8381d'), autumnW);
+      this._groundLeafUniforms.uLeafColB.value
+        .set('#7c6038')
+        .lerp(this._tmpColor.set('#d47824'), autumnW);
+      this._groundLeafUniforms.uLeafColC.value
+        .set('#58442c')
+        .lerp(this._tmpColor.set('#8f6828'), autumnW);
+    }
 
     // 4. Flowerbed seasonal plantings (Tulips / Sunflowers / Cosmos / Winter Earth)
     const setFlowerGroup = (grp, w) => {

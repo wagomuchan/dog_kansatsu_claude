@@ -380,9 +380,9 @@ export class DogAnimator {
 
       case 'sit': {
         // Analytically solved canine sit so front paws stay planted right at y=0 for every breed!
-        const sitPelvisY = Math.max(cD * 0.43, m.pawH * 2.4);
-        const torsoSpan = Math.max(0.15, m.bodyLength * 0.71);
-        const sinPitch = THREE.MathUtils.clamp((m.shoulderY - sitPelvisY) / torsoSpan, 0.22, 0.86);
+        const sitPelvisY = Math.max(cD * 0.44, m.pawH * 2.2);
+        const torsoSpan = Math.max(0.15, (m.spine1Z + m.spine2Z + m.chestZ) || (m.bodyLength * 0.62));
+        const sinPitch = THREE.MathUtils.clamp((m.shoulderY - sitPelvisY) / torsoSpan, 0.14, 0.86);
         const sitPitch = Math.asin(sinPitch);
         const chestLevel = sitPitch * 0.36;
         const residualFrontPitch = -(sitPitch - 0.08 - chestLevel);
@@ -521,8 +521,9 @@ export class DogAnimator {
       case 'play_bow': {
         // Classic play bow: elbows down near ground, rump high, excited upward gaze
         const bounce = Math.sin(pt * 5.2) * 0.03;
+        const bowScale = THREE.MathUtils.clamp(m.legClearance / Math.max(0.05, H * 0.48), 0.50, 1.05);
         t.pelvisY = pY * 0.98 + bounce * H * 0.3;
-        t.pelvisRotX = 0.40 + bounce;
+        t.pelvisRotX = 0.38 * bowScale + bounce;
         t.spine1X = 0.08;
         t.spine2X = 0.04;
         t.chestX = -0.02;
@@ -643,9 +644,9 @@ export class DogAnimator {
         // Seated using breed-accurate sit pitch, leaning right while left hind leg pumps near ear
         const sFreq = 4.8;
         const pump = Math.sin(pt * sFreq * Math.PI * 2);
-        const sitPelvisY = Math.max(cD * 0.43, m.pawH * 2.4);
-        const torsoSpan = Math.max(0.15, m.bodyLength * 0.71);
-        const sitPitch = Math.asin(THREE.MathUtils.clamp((m.shoulderY - sitPelvisY) / torsoSpan, 0.22, 0.84)) * 0.92;
+        const sitPelvisY = Math.max(cD * 0.44, m.pawH * 2.2);
+        const torsoSpan = Math.max(0.15, (m.spine1Z + m.spine2Z + m.chestZ) || (m.bodyLength * 0.62));
+        const sitPitch = Math.asin(THREE.MathUtils.clamp((m.shoulderY - sitPelvisY) / torsoSpan, 0.14, 0.84)) * 0.92;
         const chestLevel = sitPitch * 0.34;
         const residualFrontPitch = -(sitPitch - 0.08 - chestLevel);
 
@@ -715,10 +716,11 @@ export class DogAnimator {
         const phase = frac(pt * 0.26); // ~3.8s full stretch cycle
         const bowAmt = smoothstep(0.0, 0.28, phase) * (1 - smoothstep(0.72, 0.96, phase));
         const yawnAmt = smoothstep(0.28, 0.44, phase) * (1 - smoothstep(0.62, 0.78, phase));
+        const bowScale = THREE.MathUtils.clamp(m.legClearance / Math.max(0.05, H * 0.48), 0.50, 1.05);
 
         t.pelvisY = pY * (1.0 - 0.04 * bowAmt);
         t.pelvisZ = m.pelvisZ - m.bodyLength * 0.08 * bowAmt;
-        t.pelvisRotX = 0.44 * bowAmt;
+        t.pelvisRotX = 0.42 * bowScale * bowAmt;
         t.spine1X = -0.12 * bowAmt; // Deep satisfying concave back arch!
         t.spine2X = -0.10 * bowAmt;
         t.chestX = 0.14 * bowAmt;

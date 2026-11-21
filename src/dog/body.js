@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BREEDS, getBreedById } from './breeds.js';
 
 // ============================================================================
-// Procedural Canvas Textures (Eye Iris, Wet Nose Leather, Paw Pads)
+// Procedural Canvas Textures (Eye Iris, Wet Nose Leather)
 // ============================================================================
 
 function createIrisTexture(eyeColorHex) {
@@ -15,53 +15,53 @@ function createIrisTexture(eyeColorHex) {
   const cy = size * 0.5;
 
   const base = new THREE.Color(eyeColorHex);
-  const dark = base.clone().multiplyScalar(0.32);
+  const dark = base.clone().multiplyScalar(0.26);
   const mid = base.clone();
-  const bright = base.clone().lerp(new THREE.Color('#fff4d6'), 0.38);
+  const bright = base.clone().lerp(new THREE.Color('#ffeed0'), 0.34);
 
-  // Outer dark sclera / pigmented canine eye margin
-  ctx.fillStyle = '#19130f';
+  // Deep pigmented canine eye margin (dogs show almost no sclera)
+  ctx.fillStyle = '#0d0908';
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle off-white sclera edge far outside iris (dogs show very little white)
-  const scleraGrad = ctx.createRadialGradient(cx, cy, size * 0.38, cx, cy, size * 0.50);
-  scleraGrad.addColorStop(0, '#231b15');
-  scleraGrad.addColorStop(0.55, '#68594b');
-  scleraGrad.addColorStop(1, '#c8bfb3');
+  // Very subtle outer scleral rim far outside iris
+  const scleraGrad = ctx.createRadialGradient(cx, cy, size * 0.41, cx, cy, size * 0.50);
+  scleraGrad.addColorStop(0, '#140f0c');
+  scleraGrad.addColorStop(0.7, '#3d332b');
+  scleraGrad.addColorStop(1, '#9a8f84');
   ctx.fillStyle = scleraGrad;
   ctx.beginPath();
   ctx.arc(cx, cy, size * 0.50, 0, Math.PI * 2);
   ctx.fill();
 
-  // Dark limbal ring framing the iris
-  ctx.fillStyle = '#' + dark.clone().multiplyScalar(0.45).getHexString();
+  // Crisp dark limbal ring framing the iris
+  ctx.fillStyle = '#080504';
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.44, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rich glossy canine iris gradient
+  const irisGrad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.42);
+  irisGrad.addColorStop(0.0, '#' + bright.getHexString());
+  irisGrad.addColorStop(0.36, '#' + mid.getHexString());
+  irisGrad.addColorStop(0.80, '#' + dark.getHexString());
+  irisGrad.addColorStop(1.0, '#070504');
+  ctx.fillStyle = irisGrad;
   ctx.beginPath();
   ctx.arc(cx, cy, size * 0.42, 0, Math.PI * 2);
   ctx.fill();
 
-  // Main iris gradient
-  const irisGrad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.40);
-  irisGrad.addColorStop(0.0, '#' + bright.getHexString());
-  irisGrad.addColorStop(0.38, '#' + mid.getHexString());
-  irisGrad.addColorStop(0.82, '#' + dark.getHexString());
-  irisGrad.addColorStop(1.0, '#0d0907');
-  ctx.fillStyle = irisGrad;
-  ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.40, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Radial iris fibers for lifelike organic depth
+  // Radial iris fibers for organic depth
   ctx.save();
   ctx.translate(cx, cy);
-  for (let i = 0; i < 140; i++) {
-    const a = (i / 140) * Math.PI * 2 + Math.sin(i * 17.3) * 0.03;
-    const innerR = size * (0.17 + (i % 5) * 0.008);
-    const outerR = size * (0.34 + Math.sin(i * 5.7) * 0.045);
+  for (let i = 0; i < 150; i++) {
+    const a = (i / 150) * Math.PI * 2 + Math.sin(i * 17.3) * 0.03;
+    const innerR = size * (0.18 + (i % 5) * 0.008);
+    const outerR = size * (0.36 + Math.sin(i * 5.7) * 0.042);
     const isLight = i % 3 === 0;
     ctx.strokeStyle = isLight
-      ? `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.24)`
-      : `rgba(${Math.round(dark.r * 255)}, ${Math.round(dark.g * 255)}, ${Math.round(dark.b * 255)}, 0.30)`;
-    ctx.lineWidth = isLight ? 1.3 : 1.8;
+      ? `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.26)`
+      : `rgba(${Math.round(dark.r * 255)}, ${Math.round(dark.g * 255)}, ${Math.round(dark.b * 255)}, 0.34)`;
+    ctx.lineWidth = isLight ? 1.2 : 1.8;
     ctx.beginPath();
     ctx.moveTo(Math.cos(a) * innerR, Math.sin(a) * innerR);
     ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
@@ -69,31 +69,55 @@ function createIrisTexture(eyeColorHex) {
   }
   ctx.restore();
 
-  // Soft warm amber reflection band on lower iris (caustic bounce)
-  const caustic = ctx.createRadialGradient(cx, cy + size * 0.13, 2, cx, cy + size * 0.13, size * 0.20);
-  caustic.addColorStop(0, `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.32)`);
+  // Warm amber bounce crescent on lower iris (refracted sky light)
+  const caustic = ctx.createRadialGradient(cx, cy + size * 0.14, 2, cx, cy + size * 0.14, size * 0.21);
+  caustic.addColorStop(0, `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.42)`);
   caustic.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = caustic;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.38, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size * 0.40, 0, Math.PI * 2);
   ctx.fill();
 
-  // Deep black pupil with subtle inner softness
-  const pupilGrad = ctx.createRadialGradient(cx, cy, size * 0.12, cx, cy, size * 0.195);
-  pupilGrad.addColorStop(0, '#020203');
-  pupilGrad.addColorStop(0.84, '#050406');
-  pupilGrad.addColorStop(1, 'rgba(10,7,6,0)');
+  // Deep velvety black pupil
+  const pupilGrad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.22);
+  pupilGrad.addColorStop(0, '#010102');
+  pupilGrad.addColorStop(0.84, '#030304');
+  pupilGrad.addColorStop(1, 'rgba(8,5,4,0)');
   ctx.fillStyle = pupilGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.195, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size * 0.22, 0, Math.PI * 2);
   ctx.fill();
 
-  // Subtle dark shadow from upper eyelid
-  const topShadow = ctx.createLinearGradient(0, cy - size * 0.42, 0, cy + size * 0.05);
-  topShadow.addColorStop(0, 'rgba(0,0,0,0.45)');
+  // Subtle upper eyelid shadow across top of iris
+  const topShadow = ctx.createLinearGradient(0, cy - size * 0.44, 0, cy + size * 0.02);
+  topShadow.addColorStop(0, 'rgba(0,0,0,0.52)');
   topShadow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = topShadow;
   ctx.fillRect(0, 0, size, size);
+
+  // Crisp wet specular sky catchlights so eyes always sparkle alive from every angle
+  ctx.save();
+  ctx.translate(cx - size * 0.11, cy - size * 0.11);
+  ctx.rotate(-0.35);
+  const hl1 = ctx.createRadialGradient(0, 0, 1, 0, 0, size * 0.085);
+  hl1.addColorStop(0.0, 'rgba(255, 255, 255, 0.98)');
+  hl1.addColorStop(0.55, 'rgba(245, 250, 255, 0.85)');
+  hl1.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+  ctx.fillStyle = hl1;
+  ctx.scale(1.15, 0.82);
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.085, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Secondary tiny wet tear-glint dot on opposite lower edge
+  const hl2 = ctx.createRadialGradient(cx + size * 0.12, cy + size * 0.13, 0.5, cx + size * 0.12, cy + size * 0.13, size * 0.036);
+  hl2.addColorStop(0.0, 'rgba(255, 255, 255, 0.80)');
+  hl2.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+  ctx.fillStyle = hl2;
+  ctx.beginPath();
+  ctx.arc(cx + size * 0.12, cy + size * 0.13, size * 0.036, 0, Math.PI * 2);
+  ctx.fill();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -110,20 +134,20 @@ function createNoseBumpTexture() {
   ctx.fillStyle = '#707070';
   ctx.fillRect(0, 0, size, size);
 
-  // Fine cobblestone/pebble leather grain of a canine rhinarium
+  // Fine pebble/cobblestone leather grain of a canine rhinarium
   let seed = 42;
   const rnd = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 4294967296;
   };
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 460; i++) {
     const x = rnd() * size;
     const y = rnd() * size;
-    const r = 1.6 + rnd() * 2.4;
+    const r = 1.4 + rnd() * 2.2;
     const g = ctx.createRadialGradient(x, y, 0.2, x, y, r);
-    g.addColorStop(0, '#dedede');
-    g.addColorStop(0.7, '#9a9a9a');
-    g.addColorStop(1, '#383838');
+    g.addColorStop(0, '#e4e4e4');
+    g.addColorStop(0.7, '#9c9c9c');
+    g.addColorStop(1, '#343434');
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -166,6 +190,7 @@ varying float vShellHeight;
 varying vec3 vBodyPos;
 varying vec4 vCoatCoord;
 varying float vFurScale;
+varying vec3 vCombDir;
 varying vec3 vWorldNormalFur;
 varying vec3 vWorldPosFur;
 `;
@@ -175,36 +200,63 @@ vShellHeight = aShellHeight;
 vBodyPos = aBodyPos;
 vCoatCoord = aCoatCoord;
 vFurScale = aFurScale;
+vCombDir = aCombDir;
 
 if (aShellHeight > 0.0001) {
   float h = aShellHeight;
-  float h2 = h * h;
+  float hPow = pow(h, 1.35);
   // Wetness compresses and weighs fur down
-  float wetCompress = mix(1.0, 0.62, uWetness);
+  float wetCompress = mix(1.0, 0.58, uWetness);
   float localLen = uFurLength * aFurScale * wetCompress;
 
-  // Natural comb direction + gravity droop along hair length
-  float combAmt = mix(0.85, 0.28, uFluffiness) + uWetness * 0.45;
+  vec3 nDir = normalize(objectNormal);
   vec3 combVec = aCombDir;
   float combLen = length(combVec);
   if (combLen > 0.0001) combVec /= combLen;
 
-  vec3 nDir = normalize(objectNormal);
-  vec3 disp = nDir * (localLen * h) + combVec * (localLen * combAmt * h2);
+  // Project comb direction onto local surface tangent plane so hair lays smoothly back-down
+  vec3 tangentComb = combVec - nDir * dot(combVec, nDir);
+  float tcLen = length(tangentComb);
+  if (tcLen > 0.001) {
+    tangentComb /= tcLen;
+  } else {
+    tangentComb = combVec;
+  }
 
-  // Curly coat spiral offset (Toy Poodle, subtle wave on Golden)
+  // Tight natural silhouette: modest normal lift, strong tangent sweep along hair flow
+  float longFactor = smoothstep(0.015, 0.030, uFurLength) * (1.0 - uCurl);
+  float normalLift = mix(0.36, 0.56, uFluffiness);
+  normalLift = mix(normalLift, 0.68, uCurl);
+  // Clamp normal lift on feathered areas so silhouette doesn't balloon into fuzz
+  float silhouetteCap = mix(1.0, 0.72, smoothstep(1.1, 1.8, aFurScale));
+
+  float combSweep = mix(1.55, 0.90, uFluffiness) * (1.0 - uCurl * 0.65)
+                  + longFactor * 0.70
+                  + uWetness * 0.55;
+
+  vec3 disp = nDir * (localLen * normalLift * silhouetteCap * h)
+            + tangentComb * (localLen * combSweep * hPow);
+
+  // Subtle flowing lock wave for long-haired coats (Golden, Husky)
+  if (longFactor > 0.01) {
+    float lockWave = sin(dot(aBodyPos, vec3(32.0, 20.0, 26.0))) * 0.14;
+    disp += tangentComb * (localLen * longFactor * lockWave * hPow);
+  }
+
+  // Compact curly spiral offset (Toy Poodle, gentle wave on Golden)
   if (uCurl > 0.02) {
-    float phase = dot(aBodyPos, vec3(92.0, 113.0, 87.0)) + h * 11.5;
-    vec3 t1 = normalize(cross(nDir, abs(nDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    float phase = dot(aBodyPos, vec3(95.0, 115.0, 88.0)) + h * 10.0;
+    vec3 refUp = abs(nDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 t1 = normalize(cross(nDir, refUp));
     vec3 t2 = cross(nDir, t1);
-    float curlR = localLen * 0.34 * uCurl * sin(h * 3.14159);
+    float curlR = localLen * 0.26 * uCurl * sin(h * 3.14159);
     disp += (t1 * cos(phase) + t2 * sin(phase)) * curlR;
   }
 
-  // Subtle dynamic fur flutter during wet-dog shake
+  // Dynamic fur flutter during wet-dog shake
   if (uShake > 0.001) {
     float flutter = sin(uTime * 38.0 + aBodyPos.z * 16.0 + aBodyPos.y * 12.0);
-    disp += nDir * (localLen * 0.35 * uShake * h2 * (0.5 + 0.5 * flutter));
+    disp += nDir * (localLen * 0.30 * uShake * h * h * (0.5 + 0.5 * flutter));
   }
 
   transformed += disp;
@@ -219,6 +271,7 @@ uniform vec3 uPrimaryColor;
 uniform vec3 uSecondaryColor;
 uniform vec3 uTertiaryColor;
 uniform float uPattern;
+uniform float uFurLength;
 uniform float uStrandFreq;
 uniform float uFluffiness;
 uniform float uCurl;
@@ -233,6 +286,7 @@ varying float vShellHeight;
 varying vec3 vBodyPos;
 varying vec4 vCoatCoord;
 varying float vFurScale;
+varying vec3 vCombDir;
 varying vec3 vWorldNormalFur;
 varying vec3 vWorldPosFur;
 
@@ -293,7 +347,8 @@ vec2 fur_cell3D(vec3 p) {
 }
 
 vec3 fur_computeCoatColor(vec4 cc, vec3 bp, float fineTone, float clumpN) {
-  // cc.x: lateral (-1..1), cc.y: vertical (0=paws, 0.45=belly, 1.0=dorsal)
+  // cc.x: lateral (-1..1; for zone 3 legs: -1 = inner leg facing belly, +1 = outer leg)
+  // cc.y: vertical (0=paws, 0.45=belly, 1.0=dorsal)
   // cc.z: longitudinal (-1=tail/rump, 0=midback, 0.8=chest, 1.0=neck, 1.2=skull, 1.5=muzzle tip)
   // cc.w: zone (0=torso/neck, 1=head, 2=ears, 3=legs, 4=tail)
   float ax = abs(cc.x);
@@ -302,7 +357,7 @@ vec3 fur_computeCoatColor(vec4 cc, vec3 bp, float fineTone, float clumpN) {
   float zone = cc.w;
 
   // Feathery organic edge perturbation so markings look grown from hair
-  float edgeN = (clumpN - 0.5) * 0.11 + (fineTone - 0.5) * 0.04;
+  float edgeN = (clumpN - 0.5) * 0.09 + (fineTone - 0.5) * 0.03;
   float blazeW = uMarkingsA.x;
   float collarW = uMarkingsA.y;
   float browW = uMarkingsA.z;
@@ -313,159 +368,158 @@ vec3 fur_computeCoatColor(vec4 cc, vec3 bp, float fineTone, float clumpN) {
   vec3 col = uPrimaryColor;
 
   if (uPattern < 0.5) {
-    // SOLID (Golden, Labrador, Toy Poodle): rich natural shading, lighter belly/feathering
-    float bellyBlend = smoothstep(0.66, 0.34, y + edgeN) * (zone < 1.5 || zone > 2.5 ? 1.0 : 0.0);
-    float featherLight = smoothstep(1.05, 1.65, vFurScale) * 0.45;
-    col = mix(uPrimaryColor, uSecondaryColor, clamp(bellyBlend * 0.55 + featherLight, 0.0, 0.78));
-    // Slightly warmer/deeper on ear tips and dorsal back
-    float earShade = (zone > 1.5 && zone < 2.5) ? 0.25 : 0.0;
-    float spineShade = smoothstep(0.76, 1.0, y + edgeN * 0.5) * smoothstep(0.65, 0.15, ax) * dorsalDark;
-    col = mix(col, uTertiaryColor, clamp(spineShade + earShade * dorsalDark, 0.0, 0.65));
+    // SOLID (Golden, Labrador, Toy Poodle): rich saturated base, subtle warm honey belly/feathering
+    float bellyBlend = smoothstep(0.56, 0.30, y + edgeN) * (zone < 0.5 ? 1.0 : 0.0);
+    float featherLight = smoothstep(1.15, 1.75, vFurScale) * 0.34;
+    col = mix(uPrimaryColor, uSecondaryColor, clamp(bellyBlend * 0.42 + featherLight, 0.0, 0.52));
+    // Richer warm reddish-gold/amber along spine, crown & ear leather
+    float earShade = (zone > 1.5 && zone < 2.5) ? 0.42 : 0.0;
+    float spineShade = smoothstep(0.70, 0.98, y + edgeN * 0.5) * smoothstep(0.68, 0.14, ax) * dorsalDark;
+    col = mix(col, uTertiaryColor, clamp(spineShade + earShade * (0.5 + dorsalDark * 0.6), 0.0, 0.68));
   } else if (uPattern < 1.5) {
-    // URAJIRO (Shiba Inu, Corgi): rich dorsal coat + creamy underside, cheeks, chest, inner legs
-    float underMask = smoothstep(0.60, 0.42, y + edgeN);
-    // Chest front bib
-    float chestBib = smoothstep(0.55, 0.85, z + edgeN) * smoothstep(0.78, 0.52, y + edgeN) * smoothstep(0.70, 0.20, ax);
-    // Muzzle & lower cheeks cream (urajiro face)
+    // URAJIRO (Shiba Inu, Corgi): rich reddish-brown coat + cream ONLY on mouth, cheeks, chest, belly, inner legs
+    // Torso belly & throat underside ONLY (never spills onto outer legs!)
+    float underMask = (zone < 0.5) ? smoothstep(0.52, 0.34, y + edgeN) : 0.0;
+    // Front chest bib & lower throat
+    float chestBib = (zone < 0.5)
+      ? smoothstep(0.62, 0.88, z + edgeN) * smoothstep(0.76, 0.48, y + edgeN) * smoothstep(0.74, 0.20, ax)
+      : 0.0;
+
+    // Face urajiro: mouth/chin, lower muzzle sides, and plump lower cheeks
     float faceUrajiro = 0.0;
     if (zone > 0.5 && zone < 1.5) {
-      float lowerCheek = smoothstep(0.58, 0.38, y + edgeN * 0.7);
-      float snoutSides = smoothstep(1.22, 1.46, z) * smoothstep(0.66, 0.44, y + edgeN * 0.5);
-      faceUrajiro = max(lowerCheek, snoutSides * 0.85);
+      // Lower cheeks & chin
+      float lowerCheek = smoothstep(0.55, 0.36, y + edgeN * 0.6) * smoothstep(0.18, 0.58, ax);
+      float chinMouth = smoothstep(0.50, 0.34, y + edgeN * 0.5) * smoothstep(1.14, 1.38, z);
+      // Sides of muzzle (leaving upper nose bridge rich red-brown)
+      float snoutSides = smoothstep(1.24, 1.46, z) * smoothstep(0.56, 0.40, y + edgeN * 0.45);
+      faceUrajiro = max(max(lowerCheek, chinMouth), snoutSides * 0.90);
       // Forehead blaze (Corgi)
       if (blazeW > 0.05) {
         float blaze = smoothstep(0.19, 0.07, ax + edgeN * 0.3) * smoothstep(1.08, 1.24, z) * smoothstep(1.48, 1.32, z);
         faceUrajiro = max(faceUrajiro, blaze * blazeW);
       }
-      // Cute pale eyebrow pips (Shiba maro)
+      // Subtle pale eyebrow pips (Shiba maro)
       if (browW > 0.05) {
-        vec2 browD = vec2((ax - 0.28) / 0.11, (y - 0.76) / 0.09);
+        vec2 browD = vec2((ax - 0.27) / 0.10, (y - 0.74) / 0.08);
         float browZ = smoothstep(1.16, 1.25, z) * smoothstep(1.36, 1.28, z);
-        float browSpot = smoothstep(1.1, 0.35, length(browD)) * browZ * browW;
+        float browSpot = smoothstep(1.05, 0.35, length(browD)) * browZ * browW;
         faceUrajiro = max(faceUrajiro, browSpot);
       }
     }
+
     // White neck collar (Corgi)
     float collarMask = 0.0;
     if (collarW > 0.05 && zone < 0.5) {
       collarMask = smoothstep(0.84, 0.96, z + edgeN) * smoothstep(1.14, 1.00, z + edgeN) * collarW;
     }
-    // Legs: lower socks + inner leg urajiro
+
+    // Legs: ONLY inner side of legs (cc.x < 0) + optional paw socks (low on Shiba, higher on Corgi)
     float legMask = 0.0;
     if (zone > 2.5 && zone < 3.5) {
-      legMask = smoothstep(0.36, 0.15, y + edgeN * 0.6) * sockW;
-      legMask = max(legMask, smoothstep(0.55, 0.28, y + edgeN) * 0.65);
+      float innerLeg = smoothstep(0.04, -0.58, cc.x + edgeN * 0.45) * smoothstep(0.62, 0.34, y + edgeN * 0.4);
+      float pawSocks = smoothstep(0.18 + sockW * 0.14, 0.05, y + edgeN * 0.35) * sockW;
+      legMask = max(innerLeg * 0.92, pawSocks);
     }
-    // Tail underside & tip cream
+
+    // Tail underside & subtle tip cream (outer/top curve stays red-brown)
     float tailMask = 0.0;
     if (zone > 3.5) {
-      tailMask = smoothstep(0.58, 0.38, y + edgeN);
-      tailMask = max(tailMask, smoothstep(-0.78, -0.96, z + edgeN * 0.5) * tipWhite);
+      tailMask = smoothstep(0.50, 0.34, y + edgeN);
+      tailMask = max(tailMask, smoothstep(-0.80, -0.96, z + edgeN * 0.5) * tipWhite);
     }
-    // Ears stay mostly primary on back
-    float earKeep = (zone > 1.5 && zone < 2.5) ? 0.12 : 1.0;
+
+    // Ears stay richly colored on outer pinna
+    float earKeep = (zone > 1.5 && zone < 2.5) ? 0.06 : 1.0;
     float sec = clamp(max(max(underMask, chestBib), max(max(faceUrajiro, collarMask), max(legMask, tailMask))) * earKeep, 0.0, 1.0);
     col = mix(uPrimaryColor, uSecondaryColor, sec);
-    // Warm darker dorsal shading along back & tail top
-    float dorsal = smoothstep(0.75, 0.98, y + edgeN * 0.5) * smoothstep(0.55, 0.10, ax) * (1.0 - sec) * dorsalDark;
-    col = mix(col, uTertiaryColor, clamp(dorsal, 0.0, 0.60));
+    // Warm deeper chestnut-red dorsal shading along back, crown & tail top
+    float dorsal = smoothstep(0.72, 0.98, y + edgeN * 0.5) * smoothstep(0.58, 0.10, ax) * (1.0 - sec) * dorsalDark;
+    col = mix(col, uTertiaryColor, clamp(dorsal, 0.0, 0.62));
   } else if (uPattern < 2.5) {
     // TRICOLOR (Beagle): crisp white base + jet black saddle + rich chestnut-tan head/ears/flanks
-    col = uPrimaryColor; // white base
-    // Tan on head, ears, upper shoulders, thighs, and border of saddle
+    col = uPrimaryColor;
     float tanMask = 0.0;
     if (zone > 0.5 && zone < 2.5) {
-      // Head & ears richly tan except white muzzle bottom & forehead blaze
       tanMask = smoothstep(0.42, 0.62, y + edgeN * 0.6);
-      if (zone > 1.5) tanMask = 0.96; // velvety tan ears
-      float muzzleWhite = smoothstep(1.30, 1.46, z + edgeN * 0.4) * smoothstep(0.70, 0.48, y);
+      if (zone > 1.5) tanMask = 0.96;
+      float muzzleWhite = smoothstep(1.30, 1.46, z + edgeN * 0.4) * smoothstep(0.68, 0.46, y);
       float blaze = smoothstep(0.18, 0.06, ax + edgeN * 0.25) * smoothstep(1.10, 1.24, z) * blazeW;
       tanMask *= (1.0 - clamp(max(muzzleWhite, blaze), 0.0, 0.95));
     } else if (zone < 0.5) {
-      // Tan transition band around black saddle on flanks/rump/neck
-      float band = smoothstep(0.48, 0.68, y + edgeN) * smoothstep(0.95, 0.65, z + edgeN);
+      float band = smoothstep(0.46, 0.66, y + edgeN) * smoothstep(0.95, 0.65, z + edgeN);
       tanMask = band * 0.92;
     } else if (zone > 2.5 && zone < 3.5) {
-      // Upper thigh/shoulder tan, white lower legs
-      tanMask = smoothstep(0.32, 0.55, y + edgeN) * 0.85;
+      // Upper outer thigh/shoulder tan, white lower legs
+      tanMask = smoothstep(0.32, 0.54, y + edgeN) * smoothstep(-0.35, 0.25, cc.x) * 0.90;
     } else if (zone > 3.5) {
       tanMask = smoothstep(-0.85, -0.50, z + edgeN) * smoothstep(0.45, 0.65, y);
     }
     col = mix(col, uSecondaryColor, clamp(tanMask, 0.0, 1.0));
 
-    // Jet black saddle across mid/rear back and upper base of tail
     float blackSaddle = 0.0;
     if (zone < 0.5) {
       blackSaddle = smoothstep(0.58, 0.74, y + edgeN) * smoothstep(0.68, 0.36, z + edgeN) * smoothstep(-0.98, -0.68, z + edgeN);
     } else if (zone > 3.5) {
-      // Black upper base of tail, crisp white tail tip!
       blackSaddle = smoothstep(-0.58, -0.32, z + edgeN) * smoothstep(0.48, 0.68, y + edgeN);
     }
     col = mix(col, uTertiaryColor, clamp(blackSaddle, 0.0, 1.0));
-    // Crisp white tail tip
     if (zone > 3.5 && tipWhite > 0.2) {
       float wt = smoothstep(-0.66, -0.82, z + edgeN * 0.5) * tipWhite;
       col = mix(col, uPrimaryColor, wt);
     }
   } else if (uPattern < 3.5) {
     // SADDLE / BLACK & TAN (Dachshund): deep glossy black coat + mahogany tan points
-    col = uPrimaryColor; // glossy black
+    col = uPrimaryColor;
     float tanPt = 0.0;
     if (zone > 0.5 && zone < 1.5) {
-      // Tan lower muzzle & cheeks
       tanPt = smoothstep(0.54, 0.34, y + edgeN * 0.5) * smoothstep(1.08, 1.32, z);
-      // Iconic distinct tan eyebrow pips!
-      vec2 browD = vec2((ax - 0.26) / 0.11, (y - 0.74) / 0.09);
+      vec2 browD = vec2((ax - 0.26) / 0.10, (y - 0.74) / 0.08);
       float browZ = smoothstep(1.14, 1.24, z) * smoothstep(1.36, 1.27, z);
       tanPt = max(tanPt, smoothstep(1.15, 0.35, length(browD)) * browZ * browW);
     } else if (zone < 0.5) {
-      // Two warm tan chest patches + subtle lower belly trim
-      float chestPatch = smoothstep(0.62, 0.88, z + edgeN) * smoothstep(0.62, 0.36, y + edgeN) * smoothstep(0.58, 0.20, ax);
+      float chestPatch = smoothstep(0.62, 0.88, z + edgeN) * smoothstep(0.60, 0.34, y + edgeN) * smoothstep(0.58, 0.20, ax);
       float bellyTrim = smoothstep(0.42, 0.26, y + edgeN) * 0.55;
       tanPt = max(chestPatch, bellyTrim);
     } else if (zone > 2.5 && zone < 3.5) {
-      // Tan lower legs & paws
-      tanPt = smoothstep(0.48, 0.22, y + edgeN * 0.5) * sockW;
+      float lowerTan = smoothstep(0.44, 0.18, y + edgeN * 0.5) * sockW;
+      float innerTan = smoothstep(0.0, -0.60, cc.x + edgeN * 0.3) * 0.70;
+      tanPt = max(lowerTan, innerTan);
     } else if (zone > 3.5) {
-      // Tan underside of tail
       tanPt = smoothstep(0.50, 0.32, y + edgeN) * 0.85;
     }
     col = mix(col, uSecondaryColor, clamp(tanPt, 0.0, 1.0));
   } else {
     // MASK (Siberian Husky): wolf-grey/charcoal dorsal coat + snow-white mask, chest, belly, legs
-    float whiteMask = smoothstep(0.64, 0.44, y + edgeN);
-    // Snow-white chest & lower neck
-    float chestWhite = smoothstep(0.52, 0.86, z + edgeN) * smoothstep(0.84, 0.56, y + edgeN);
+    float whiteMask = (zone < 0.5) ? smoothstep(0.60, 0.40, y + edgeN) : 0.0;
+    float chestWhite = (zone < 0.5)
+      ? smoothstep(0.54, 0.86, z + edgeN) * smoothstep(0.82, 0.54, y + edgeN)
+      : 0.0;
     whiteMask = max(whiteMask, chestWhite);
 
     if (zone > 0.5 && zone < 1.5) {
-      // Iconic Husky face: dark crown cap dipping down to a widow's peak, white cheeks/eye-mask/muzzle!
       float capLine = 0.68 - 0.14 * smoothstep(0.28, 0.0, ax) + 0.12 * smoothstep(1.15, 1.38, z);
       float faceWhite = smoothstep(capLine + 0.08, capLine - 0.08, y + edgeN * 0.5);
-      // Muzzle completely snow-white
       faceWhite = max(faceWhite, smoothstep(1.26, 1.40, z + edgeN * 0.4));
-      // Narrow pale bar between eyes
       float bar = smoothstep(0.13, 0.03, ax + edgeN * 0.2) * smoothstep(1.16, 1.28, z) * blazeW;
       whiteMask = clamp(max(faceWhite, bar), 0.0, 1.0);
     } else if (zone > 1.5 && zone < 2.5) {
-      // Dark furred outer ears
-      whiteMask = 0.05;
+      whiteMask = 0.04;
     } else if (zone > 2.5 && zone < 3.5) {
-      // White legs with soft grey upper thigh/shoulder
-      whiteMask = smoothstep(0.56, 0.28, y + edgeN * 0.6) * sockW;
+      float innerW = smoothstep(0.08, -0.52, cc.x + edgeN * 0.4);
+      float sockWhite = smoothstep(0.50, 0.24, y + edgeN * 0.5) * sockW;
+      whiteMask = max(innerW * 0.90, sockWhite);
     } else if (zone > 3.5) {
-      // Grey top brush, snow-white underside & tip
-      whiteMask = max(smoothstep(0.60, 0.40, y + edgeN), smoothstep(-0.80, -0.96, z) * tipWhite);
+      whiteMask = max(smoothstep(0.58, 0.38, y + edgeN), smoothstep(-0.80, -0.96, z) * tipWhite);
     }
 
     col = mix(uPrimaryColor, uSecondaryColor, clamp(whiteMask, 0.0, 1.0));
-    // Darker charcoal dorsal stripe & crown cap depth
-    float darkCap = smoothstep(0.76, 0.96, y + edgeN * 0.5) * smoothstep(0.55, 0.12, ax) * (1.0 - whiteMask) * dorsalDark;
+    float darkCap = smoothstep(0.74, 0.96, y + edgeN * 0.5) * smoothstep(0.55, 0.12, ax) * (1.0 - whiteMask) * dorsalDark;
     col = mix(col, uTertiaryColor, clamp(darkCap, 0.0, 0.68));
   }
 
-  // Organic hair-to-hair tonal richness
-  float toneVar = 1.0 + (fineTone - 0.5) * 0.14 + (clumpN - 0.5) * 0.10;
+  // Subtle organic strand-to-strand tonal variation
+  float toneVar = 1.0 + (fineTone - 0.5) * 0.11 + (clumpN - 0.5) * 0.08;
   col *= toneVar;
   return col;
 }
@@ -473,48 +527,73 @@ vec3 fur_computeCoatColor(vec4 cc, vec3 bp, float fineTone, float clumpN) {
 
 const FUR_FRAGMENT_COLOR = /* glsl */ `
 {
-  // Clump noise for natural fur locks (stronger clumping when wet or curly)
-  float clumpScale = mix(18.0, 12.0, uWetness) + uCurl * 10.0;
-  float clumpN = fur_noise3(vBodyPos * clumpScale);
-  vec2 cell = fur_cell3D(vBodyPos * uStrandFreq + vec3(clumpN * (0.28 + uWetness * 0.45)));
+  // Elongate sampling slightly along comb flow so hair groups into natural silky locks
+  float longCoat = smoothstep(0.014, 0.028, uFurLength) * (1.0 - uCurl);
+  vec3 cDir = length(vCombDir) > 0.001 ? normalize(vCombDir) : vec3(0.0, -0.30, -0.95);
+  vec3 flowPos = vBodyPos - cDir * (dot(vBodyPos, cDir) * mix(0.32, 0.64, longCoat));
+
+  // Cohesive lock/clump field (flowing locks on Golden/Husky, tight velvet grain on Shiba/Lab)
+  float clumpScale = mix(26.0, 15.0, longCoat) + uCurl * 14.0 - uWetness * 4.0;
+  float clumpN = fur_noise3(flowPos * clumpScale);
+  float clumpDetail = fur_noise3(flowPos * (clumpScale * 2.1) + vec3(4.3, 1.9, 7.1));
+  float lockMask = mix(clumpN, clumpN * 0.65 + clumpDetail * 0.35, 0.5);
+
+  // Fine high-frequency strand cellular lookup
+  vec3 strandPos = flowPos * uStrandFreq + vec3(clumpN * (0.32 + longCoat * 0.52 + uWetness * 0.45));
+  vec2 cell = fur_cell3D(strandPos);
   float dist = cell.x;
   float strandId = cell.y;
 
+  float shellAlpha = 1.0;
   if (uIsShell > 0.5) {
-    // Each strand has randomized natural height (modulated by fur clumps)
-    float maxH = mix(0.42, 1.02, strandId) * mix(0.84, 1.12, clumpN);
-    // Curly coat stays fuller toward tips
-    float taperPower = mix(0.82, 0.52, uCurl);
-    float radius = mix(0.62, 0.06, pow(clamp(vShellHeight / max(maxH, 0.01), 0.0, 1.0), taperPower));
-    // Wet fur clumps into thicker pointed locks with gaps between
-    radius *= mix(1.0, 0.78 + 0.38 * clumpN, uWetness);
-    if (vShellHeight > maxH || dist > radius) {
+    float h = clamp(vShellHeight, 0.0, 1.0);
+    // Short coats have even plush length; long coats taper into cohesive flowing locks
+    float heightSpread = mix(0.22, 0.48, longCoat + uWetness * 0.35);
+    float lockHeight = mix(0.76, 1.04, lockMask);
+    float strandHeight = mix(1.0 - heightSpread, 1.02, strandId);
+    float maxH = clamp(mix(strandHeight, lockHeight * strandHeight, 0.42 + longCoat * 0.38), 0.25, 1.02);
+
+    float normH = clamp(h / max(maxH, 0.01), 0.0, 1.0);
+    float taperPow = mix(0.78, 0.52, uCurl);
+    float radius = mix(0.80, 0.16, pow(max(normH, 0.0001), taperPow));
+    radius *= mix(1.0, 0.72 + 0.48 * lockMask, longCoat * 0.55 + uWetness * 0.65);
+
+    // Smooth anti-aliased strand mask + gentle root-to-tip alpha fade (zero harsh dotty noise)
+    float strandCov = 1.0 - smoothstep(max(0.0, radius - 0.14), radius + 0.14, dist);
+    float tipCov = 1.0 - smoothstep(maxH * 0.70, maxH + 0.06, h);
+    float rootToTipFade = pow(max(1.0 - h * 0.92, 0.001), mix(1.15, 1.48, longCoat));
+
+    shellAlpha = strandCov * tipCov * rootToTipFade * mix(0.72, 0.58, longCoat);
+    if (shellAlpha < 0.015) {
       discard;
     }
   }
 
   vec3 coatCol = fur_computeCoatColor(vCoatCoord, vBodyPos, strandId, clumpN);
 
-  // Ambient self-occlusion: deeper shadowed undercoat near roots, bright airy tips
-  float ao = uIsShell > 0.5
-    ? mix(0.36, 1.08, pow(clamp(vShellHeight, 0.0, 1.0), 0.70))
-    : 0.34;
-  // Slightly brighten sunlit outer tips for soft double-coat glow
-  float tipLift = smoothstep(0.60, 1.0, vShellHeight) * 0.08 * uFluffiness;
-  coatCol = coatCol * ao + vec3(tipLift) * coatCol;
+  // Root-to-tip depth shading: darker richly-saturated roots, brighter tips for 3D coat depth
+  float hClamped = clamp(vShellHeight, 0.0, 1.0);
+  vec3 rootCol = coatCol * coatCol * 0.40 + coatCol * 0.26;
+  vec3 tipCol = coatCol * (1.04 + 0.12 * smoothstep(0.50, 1.0, hClamped));
+  float depthCurve = pow(max(hClamped, 0.0001), 0.68);
+  coatCol = uIsShell > 0.5 ? mix(rootCol, tipCol, depthCurve) : (rootCol * 0.92);
+
+  // Subtle lock-valley ambient shading so long locks read as sculpted flowing tufts
+  float lockAO = mix(0.84, 1.08, lockMask);
+  coatCol *= mix(1.0, lockAO, 0.30 + longCoat * 0.38);
 
   // Wetness darkens coat (water-saturated fur absorbs more light)
   coatCol *= mix(1.0, 0.62, uWetness);
 
   // Dirtiness accumulates organically on lower paws, lower legs, belly, and muzzle tip
   if (uDirt > 0.005) {
-    float lowZone = smoothstep(0.46, 0.08, vCoatCoord.y);
+    float lowZone = smoothstep(0.44, 0.08, vCoatCoord.y);
     float snoutDirt = (vCoatCoord.w > 0.5 && vCoatCoord.w < 1.5)
       ? smoothstep(1.26, 1.48, vCoatCoord.z) * 0.75
       : 0.0;
     float dirtPatch = fur_noise3(vBodyPos * 14.0 + vec3(3.1, 1.7, 5.4));
     float dirtAmt = clamp(max(lowZone, snoutDirt) * smoothstep(0.28, 0.75, dirtPatch) * uDirt, 0.0, 0.85);
-    vec3 mudCol = vec3(0.24, 0.17, 0.11) * mix(0.65, 1.0, vShellHeight);
+    vec3 mudCol = vec3(0.22, 0.15, 0.10) * mix(0.65, 1.0, hClamped);
     coatCol = mix(coatCol, mudCol, dirtAmt);
   }
 
@@ -522,40 +601,46 @@ const FUR_FRAGMENT_COLOR = /* glsl */ `
   if (uSnow > 0.005) {
     float upMask = smoothstep(0.28, 0.82, vWorldNormalFur.y);
     float flakeN = fur_noise3(vBodyPos * 28.0 + vec3(9.2, 4.1, 2.3));
-    float tipMask = uIsShell > 0.5 ? smoothstep(0.22, 0.78, vShellHeight) : 0.15;
+    float tipMask = uIsShell > 0.5 ? smoothstep(0.22, 0.78, hClamped) : 0.15;
     float snowAmt = clamp(upMask * tipMask * smoothstep(0.30, 0.74, flakeN) * uSnow * 1.25, 0.0, 0.92);
     vec3 snowCol = vec3(0.93, 0.96, 1.0);
     coatCol = mix(coatCol, snowCol, snowAmt);
   }
 
   diffuseColor.rgb = coatCol;
+  diffuseColor.a = shellAlpha;
 }
 `;
 
 const FUR_FRAGMENT_ROUGHNESS = /* glsl */ `
 {
-  // Dry fur is soft matte; wet fur gains damp sheen; snow is crisp matte-crystalline
-  float baseRough = mix(0.86, 0.34, uWetness);
-  // Short sleek coats (low fluffiness) have natural healthy coat gloss
-  baseRough -= (1.0 - uFluffiness) * 0.18;
-  // Tips catch slightly more soft sheen
+  // Dry fur has soft natural sheen; sleek short coats have healthy gloss; wet fur gleams
+  float baseRough = mix(0.84, 0.34, uWetness);
+  baseRough -= (1.0 - uFluffiness) * 0.20;
   baseRough -= vShellHeight * 0.06;
-  roughnessFactor = clamp(mix(baseRough, 0.58, uSnow * smoothstep(0.35, 0.85, vWorldNormalFur.y)), 0.24, 0.96);
+  roughnessFactor = clamp(mix(baseRough, 0.58, uSnow * smoothstep(0.35, 0.85, vWorldNormalFur.y)), 0.24, 0.95);
 }
 `;
 
 function createFurMaterial(uniforms, isShell, breed) {
+  // Subtle warm sheen tinted from primary coat (never chalky white washout!)
+  const sheenTint = new THREE.Color(breed.primaryColor)
+    .lerp(new THREE.Color(breed.secondaryColor), 0.35)
+    .lerp(new THREE.Color('#fff6e5'), 0.12);
+
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.85,
+    roughness: 0.84,
     metalness: 0.0,
-    sheen: isShell ? 0.55 + breed.fluffiness * 0.25 : 0.25,
-    sheenRoughness: 0.68,
-    sheenColor: new THREE.Color(breed.secondaryColor).lerp(new THREE.Color('#ffffff'), 0.35),
+    sheen: isShell ? 0.24 + breed.fluffiness * 0.16 : 0.16,
+    sheenRoughness: 0.72,
+    sheenColor: sheenTint,
     side: THREE.FrontSide,
+    transparent: isShell,
+    depthWrite: !isShell,
   });
 
-  mat.customProgramCacheKey = () => (isShell ? 'dog-shell-fur-v2' : 'dog-base-fur-v2');
+  mat.customProgramCacheKey = () => (isShell ? 'dog-shell-fur-v3' : 'dog-base-fur-v3');
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.uniforms.uIsShell = { value: isShell ? 1.0 : 0.0 };
@@ -576,25 +661,6 @@ function createFurMaterial(uniforms, isShell, breed) {
 // Organic Sculpted Loft Geometry & Shell Stack Builder
 // ============================================================================
 
-/**
- * Creates a smooth, closed anatomical lofted BufferGeometry with custom fur attributes.
- * Each section: {
- *   pos: [x,y,z], rx, ry,
- *   axis?: 'z'|'y',          // cross-section plane normal (default 'z')
- *   topFlat?: number,        // flattens top dorsal plane (0..0.4)
- *   bottomPinch?: number,    // narrows bottom keel/chest (0..0.4)
- *   sideShiftY?: number,     // shifts widest point up or down (-0.3..0.3)
- *   furScale?: number,       // fur length multiplier at this ring
- *   coatZ?: number,          // canonical longitudinal coordinate
- *   coatYCenter?: number,    // canonical vertical center
- *   coatYSpan?: number,      // canonical vertical half-span
- *   coatXSpan?: number,      // canonical lateral span
- *   coatZone?: number,       // 0=torso, 1=head, 2=ears, 3=legs, 4=tail
- *   combDir?: [x,y,z],       // local fur comb direction
- *   backFeather?: number,    // extra fur scale on -Z side (leg/tail feathering)
- *   bottomFeather?: number,  // extra fur scale on -Y side (belly/chest/plume tail)
- * }
- */
 function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
   const numRings = sections.length;
   const cols = radialSegs + 1;
@@ -625,7 +691,7 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
     const coatYSpan = s.coatYSpan !== undefined ? s.coatYSpan : 0.25;
     const coatXSpan = s.coatXSpan !== undefined ? s.coatXSpan : 0.85;
     const coatZone = s.coatZone !== undefined ? s.coatZone : 0.0;
-    const comb = s.combDir || (axis === 'z' ? [0, -0.25, -0.95] : [0, -0.92, -0.28]);
+    const comb = s.combDir || (axis === 'z' ? [0, -0.32, -0.94] : [0, -0.94, -0.32]);
     const backFeather = s.backFeather || 0;
     const bottomFeather = s.bottomFeather || 0;
     const vCoord = i / Math.max(1, numRings - 1);
@@ -637,7 +703,7 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
       const sa = Math.sin(a);
 
       let lx, ly, lz;
-      let normX, normY, backFactor, bottomFactor;
+      let normX, normY, normZ, backFactor, bottomFactor;
 
       if (axis === 'z') {
         // Cross section in XY plane: ca = +X, sa = +Y
@@ -655,10 +721,11 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
         lz = cz;
         normX = sx;
         normY = sy;
+        normZ = 0;
         backFactor = 0;
         bottomFactor = Math.max(0, -sy);
       } else {
-        // Cross section in XZ plane (for legs/neck): ca = +X, sa = +Z
+        // Cross section in XZ plane (for legs/neck/ears): ca = +X, sa = +Z
         let sx = ca;
         let sz = sa;
         if (sz < 0 && bottomPinch > 0) {
@@ -669,6 +736,7 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
         lz = cz + sz * ry;
         normX = sx;
         normY = 0;
+        normZ = sz;
         backFactor = Math.max(0, -sz);
         bottomFactor = 0;
       }
@@ -690,7 +758,10 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
       furScales.push(fScale);
 
       const ccX = s.coatXOffset !== undefined ? s.coatXOffset + normX * coatXSpan : normX * coatXSpan;
-      const ccY = axis === 'z' ? coatYCenter + normY * coatYSpan : coatYCenter;
+      // On neck (axis 'y', coatZone 0), +Z is ventral throat (lower Y) and -Z is dorsal nape (higher Y)
+      const ccY = axis === 'z'
+        ? coatYCenter + normY * coatYSpan
+        : (coatZone === 0 ? coatYCenter - normZ * coatYSpan : coatYCenter);
       coatCoords.push(ccX, ccY, coatZ, coatZone);
     }
   }
@@ -702,7 +773,6 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
       const c = (i + 1) * cols + (j + 1);
       const d = i * cols + (j + 1);
       if (sections[0].axis === 'y') {
-        // Downward loft (-Y progression) vs upward (+Y)
         const dirY = sections[numRings - 1].pos[1] - sections[0].pos[1];
         if (dirY < 0) {
           indices.push(a, d, b, b, d, c);
@@ -750,8 +820,9 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
 
 /**
  * Packs `layers` concentric shell copies of `baseGeo` into a single BufferGeometry (1 draw call).
+ * Drawn innermost-to-outermost so smooth translucent alpha blends cleanly.
  */
-function createShellGeometry(baseGeo, layers = 18) {
+function createShellGeometry(baseGeo, layers = 20) {
   const posAttr = baseGeo.getAttribute('position');
   const normAttr = baseGeo.getAttribute('normal');
   const uvAttr = baseGeo.getAttribute('uv');
@@ -822,12 +893,14 @@ function addFurredPart(parent, baseGeo, baseMat, shellMat, layers, disposables) 
   const baseMesh = new THREE.Mesh(baseGeo, baseMat);
   baseMesh.castShadow = true;
   baseMesh.receiveShadow = true;
+  baseMesh.renderOrder = 0;
   parent.add(baseMesh);
 
   const shellGeo = createShellGeometry(baseGeo, layers);
   const shellMesh = new THREE.Mesh(shellGeo, shellMat);
   shellMesh.castShadow = false;
   shellMesh.receiveShadow = true;
+  shellMesh.renderOrder = 1;
   parent.add(shellMesh);
 
   disposables.geometries.push(baseGeo, shellGeo);
@@ -835,46 +908,47 @@ function addFurredPart(parent, baseGeo, baseMat, shellMat, layers, disposables) 
 }
 
 // ============================================================================
-// Specialized Anatomical Builders (Head, Ears, Paws, Nose, Mouth, Whiskers)
+// Specialized Anatomical Builders (Head, Ears, Paws, Nose, Lips, Eyes)
 // ============================================================================
 
 function buildHeadGeometry(breed, bodyTransformFn, eyeCoords) {
   const hs = breed.headSize;
   const ml = breed.muzzleLength;
-  const mw = hs * breed.muzzleWidth;
-  const mh = hs * breed.muzzleHeight;
+  const mw = hs * breed.muzzleWidth * 0.74;
+  const mh = hs * breed.muzzleHeight * 0.62;
   const stop = breed.stopDepth;
   const cheek = 1.0 + breed.cheekFluff * 0.24;
-  const puff = breed.curl * 0.20;
+  const puff = breed.curl * 0.16;
 
-  // Continuous sculpted cranium -> cheeks -> brow/stop -> nasal bridge -> muzzle tip
+  // Continuous sculpted cranium -> plump cheeks -> orbital stop -> nasal bridge -> muzzle tip
   const sections = [
     // Occiput (back of skull)
-    { pos: [0, hs * 0.14, -hs * 0.96], rx: hs * 0.12, ry: hs * 0.10, furScale: 0.72, coatZ: 1.06, coatYCenter: 0.80, coatYSpan: 0.08, coatXSpan: 0.12, coatZone: 1, combDir: [0, -0.35, -0.92] },
-    { pos: [0, hs * 0.14, -hs * 0.78], rx: hs * 0.66, ry: hs * 0.62, topFlat: 0.12, furScale: 0.78, coatZ: 1.10, coatYCenter: 0.76, coatYSpan: 0.22, coatXSpan: 0.55, coatZone: 1, combDir: [0, -0.30, -0.94] },
-    // Crown & wide cheeks (zygomatic arches)
-    { pos: [0, hs * 0.12, -hs * 0.34], rx: hs * 0.98 * cheek, ry: hs * 0.88 * (1 + puff * 0.4), topFlat: 0.16, sideShiftY: -0.06, furScale: 0.85 + breed.cheekFluff * 0.35, coatZ: 1.15, coatYCenter: 0.70, coatYSpan: 0.30, coatXSpan: 0.88, coatZone: 1, combDir: [0, -0.25, -0.95] },
-    // Forehead & brow plane
-    { pos: [0, hs * 0.10, hs * 0.14], rx: hs * 0.92 * cheek, ry: hs * 0.82 * (1 + puff * 0.3), topFlat: 0.18, bottomPinch: 0.08, sideShiftY: -0.08, furScale: 0.56 + breed.cheekFluff * 0.24, coatZ: 1.22, coatYCenter: 0.68, coatYSpan: 0.28, coatXSpan: 0.80, coatZone: 1, combDir: [0, -0.20, -0.96] },
-    // Facial stop / orbital slope (eyes sit cleanly on this forward transition!)
-    { pos: [0, hs * (0.00 - stop * 0.14), hs * 0.44], rx: hs * 0.66 * (1 + puff * 0.20), ry: hs * (0.52 - stop * 0.10), topFlat: 0.20, bottomPinch: 0.14, furScale: 0.24 + puff * 0.32, coatZ: 1.30, coatYCenter: 0.62, coatYSpan: 0.22, coatXSpan: 0.56, coatZone: 1, combDir: [0, -0.15, -0.98] },
-    // Mid-muzzle (nasal bridge + upper lips/flews)
-    { pos: [0, -hs * (0.07 + stop * 0.13), hs * 0.48 + ml * 0.44], rx: mw * (1.06 + puff * 0.30), ry: mh * (1.02 + puff * 0.24), topFlat: 0.28, bottomPinch: 0.06, sideShiftY: -0.10, furScale: 0.22 + puff * 0.48, coatZ: 1.40, coatYCenter: 0.56, coatYSpan: 0.18, coatXSpan: 0.44, coatZone: 1, combDir: [0, -0.10, -0.99] },
-    // Front muzzle (around whisker pads)
-    { pos: [0, -hs * (0.09 + stop * 0.13), hs * 0.50 + ml * 0.86], rx: mw * (0.86 + puff * 0.20), ry: mh * (0.84 + puff * 0.16), topFlat: 0.30, sideShiftY: -0.06, furScale: 0.18 + puff * 0.36, coatZ: 1.48, coatYCenter: 0.54, coatYSpan: 0.14, coatXSpan: 0.32, coatZone: 1, combDir: [0, -0.05, -0.99] },
-    // Muzzle tip cap (behind nose leather)
-    { pos: [0, -hs * (0.08 + stop * 0.13), hs * 0.50 + ml * 1.02], rx: mw * 0.22, ry: mh * 0.20, furScale: 0.12, coatZ: 1.52, coatYCenter: 0.54, coatYSpan: 0.06, coatXSpan: 0.10, coatZone: 1, combDir: [0, 0, -1] },
+    { pos: [0, hs * 0.10, -hs * 0.92], rx: hs * 0.14, ry: hs * 0.13, furScale: 0.72, coatZ: 1.06, coatYCenter: 0.80, coatYSpan: 0.10, coatXSpan: 0.16, coatZone: 1, combDir: [0, -0.38, -0.92] },
+    { pos: [0, hs * 0.10, -hs * 0.72], rx: hs * 0.58, ry: hs * 0.56, topFlat: 0.14, furScale: 0.80, coatZ: 1.10, coatYCenter: 0.76, coatYSpan: 0.24, coatXSpan: 0.62, coatZone: 1, combDir: [0, -0.34, -0.94] },
+    // Crown & plump cheeks (zygomatic arches)
+    { pos: [0, hs * 0.08, -hs * 0.26], rx: hs * 0.80 * cheek, ry: hs * 0.74 * (1 + puff * 0.32), topFlat: 0.16, sideShiftY: -0.10, furScale: 0.86 + breed.cheekFluff * 0.30, coatZ: 1.15, coatYCenter: 0.68, coatYSpan: 0.32, coatXSpan: 0.92, coatZone: 1, combDir: [0, -0.28, -0.95] },
+    // Forehead & full cheek width
+    { pos: [0, hs * 0.06, hs * 0.16], rx: hs * 0.76 * cheek, ry: hs * 0.70 * (1 + puff * 0.24), topFlat: 0.18, bottomPinch: 0.06, sideShiftY: -0.11, furScale: 0.54 + breed.cheekFluff * 0.22, coatZ: 1.22, coatYCenter: 0.66, coatYSpan: 0.30, coatXSpan: 0.84, coatZone: 1, combDir: [0, -0.22, -0.97] },
+    // Facial stop / orbital plane (eyes sit cleanly on this forward-angled transition)
+    { pos: [0, hs * (0.01 - stop * 0.10), hs * 0.44], rx: hs * 0.58 * (1 + puff * 0.18), ry: hs * (0.48 - stop * 0.08), topFlat: 0.20, bottomPinch: 0.10, furScale: 0.20 + puff * 0.26, coatZ: 1.30, coatYCenter: 0.60, coatYSpan: 0.24, coatXSpan: 0.58, coatZone: 1, combDir: [0, -0.18, -0.98] },
+    // Muzzle base (nasal bridge + upper lips/flews)
+    { pos: [0, -hs * (0.05 + stop * 0.11), hs * 0.46 + ml * 0.38], rx: mw * (1.12 + puff * 0.22), ry: mh * (1.06 + puff * 0.18), topFlat: 0.26, bottomPinch: 0.05, sideShiftY: -0.12, furScale: 0.18 + puff * 0.36, coatZ: 1.39, coatYCenter: 0.54, coatYSpan: 0.18, coatXSpan: 0.44, coatZone: 1, combDir: [0, -0.14, -0.99] },
+    // Front muzzle (whisker pads)
+    { pos: [0, -hs * (0.06 + stop * 0.11), hs * 0.46 + ml * 0.82], rx: mw * (0.88 + puff * 0.16), ry: mh * (0.86 + puff * 0.14), topFlat: 0.28, sideShiftY: -0.08, furScale: 0.14 + puff * 0.28, coatZ: 1.47, coatYCenter: 0.52, coatYSpan: 0.14, coatXSpan: 0.32, coatZone: 1, combDir: [0, -0.08, -0.99] },
+    // Muzzle front rim behind wet nose leather
+    { pos: [0, -hs * (0.06 + stop * 0.11), hs * 0.46 + ml * 0.98], rx: mw * 0.40, ry: mh * 0.38, furScale: 0.03, coatZ: 1.50, coatYCenter: 0.52, coatYSpan: 0.08, coatXSpan: 0.14, coatZone: 1, combDir: [0, 0, -1] },
+    // Tip closure
+    { pos: [0, -hs * (0.06 + stop * 0.11), hs * 0.46 + ml * 1.03], rx: mw * 0.10, ry: mh * 0.10, furScale: 0.02, coatZ: 1.52, coatYCenter: 0.52, coatYSpan: 0.04, coatXSpan: 0.06, coatZone: 1, combDir: [0, 0, -1] },
   ];
 
-  const geo = createOrganicLoft(sections, 22, bodyTransformFn);
+  const geo = createOrganicLoft(sections, 24, bodyTransformFn);
 
-  // Sculpt subtle bilateral orbital sockets & shorten fur immediately around eyelids
-  // so the glossy eyes are ALWAYS crisp, expressive, and unobstructed on every breed
+  // Sculpt bilateral orbital sockets & clear fur cleanly around eyes so eyes + black eyeliner are crisp
   if (eyeCoords) {
     const pos = geo.getAttribute('position');
     const furScale = geo.getAttribute('aFurScale');
     const { eyeX, eyeY, eyeZ, eyeR } = eyeCoords;
-    const clearR = eyeR * 2.1;
+    const clearR = eyeR * 2.3;
 
     for (let i = 0; i < pos.count; i++) {
       const vx = pos.getX(i);
@@ -887,12 +961,10 @@ function buildHeadGeometry(breed, bodyTransformFn, eyeCoords) {
       if (d < clearR) {
         const w = 1.0 - d / clearR;
         const smoothW = w * w * (3.0 - 2.0 * w);
-        // Shorten eyelid-area fur cleanly
         const curFur = furScale.getX(i);
-        furScale.setX(i, THREE.MathUtils.lerp(curFur, 0.12, smoothW * 0.88));
-        // Gentle socket depression directly behind eyeball center
+        furScale.setX(i, THREE.MathUtils.lerp(curFur, 0.02, smoothW * 0.96));
         const indent = smoothW * eyeR * 0.24;
-        pos.setXYZ(i, vx * (1.0 - indent * 0.35 / Math.max(0.01, hs)), vy, vz - indent * 0.55);
+        pos.setXYZ(i, vx * (1.0 - indent * 0.30 / Math.max(0.01, hs)), vy, vz - indent * 0.48);
       }
     }
     pos.needsUpdate = true;
@@ -906,20 +978,70 @@ function buildHeadGeometry(breed, bodyTransformFn, eyeCoords) {
 function buildJawGeometry(breed, bodyTransformFn) {
   const hs = breed.headSize;
   const ml = breed.muzzleLength;
-  const mw = hs * breed.muzzleWidth * 0.78;
-  const mh = hs * breed.muzzleHeight * 0.46;
-  const puff = breed.curl * 0.25;
-  const jawLen = hs * 0.42 + ml * 0.84;
+  const mw = hs * breed.muzzleWidth * 0.74 * 0.80;
+  const mh = hs * breed.muzzleHeight * 0.62 * 0.54;
+  const puff = breed.curl * 0.20;
+  const jawLen = hs * 0.36 + ml * 0.82;
 
   const sections = [
-    { pos: [0, 0, -hs * 0.14], rx: mw * 0.72, ry: mh * 0.60, furScale: 0.32 + puff * 0.45, coatZ: 1.24, coatYCenter: 0.42, coatYSpan: 0.08, coatXSpan: 0.35, coatZone: 1, combDir: [0, -0.45, -0.88] },
-    { pos: [0, -mh * 0.10, jawLen * 0.35], rx: mw * 0.92, ry: mh * 0.82, topFlat: 0.38, furScale: 0.28 + puff * 0.45, coatZ: 1.34, coatYCenter: 0.40, coatYSpan: 0.08, coatXSpan: 0.34, coatZone: 1, combDir: [0, -0.35, -0.92] },
-    { pos: [0, -mh * 0.06, jawLen * 0.78], rx: mw * 0.76, ry: mh * 0.68, topFlat: 0.38, furScale: 0.22 + puff * 0.35, coatZ: 1.44, coatYCenter: 0.42, coatYSpan: 0.07, coatXSpan: 0.26, coatZone: 1, combDir: [0, -0.25, -0.95] },
-    { pos: [0, 0.0, jawLen * 0.96], rx: mw * 0.42, ry: mh * 0.40, topFlat: 0.30, furScale: 0.16 + puff * 0.25, coatZ: 1.49, coatYCenter: 0.44, coatYSpan: 0.05, coatXSpan: 0.16, coatZone: 1, combDir: [0, -0.15, -0.98] },
-    { pos: [0, 0.0, jawLen * 1.03], rx: mw * 0.08, ry: mh * 0.08, furScale: 0.12, coatZ: 1.51, coatYCenter: 0.45, coatYSpan: 0.02, coatXSpan: 0.05, coatZone: 1, combDir: [0, -0.10, -0.99] },
+    { pos: [0, 0, -hs * 0.12], rx: mw * 0.74, ry: mh * 0.64, furScale: 0.26 + puff * 0.36, coatZ: 1.24, coatYCenter: 0.40, coatYSpan: 0.08, coatXSpan: 0.35, coatZone: 1, combDir: [0, -0.45, -0.88] },
+    { pos: [0, -mh * 0.10, jawLen * 0.36], rx: mw * 0.92, ry: mh * 0.84, topFlat: 0.38, furScale: 0.22 + puff * 0.36, coatZ: 1.34, coatYCenter: 0.38, coatYSpan: 0.08, coatXSpan: 0.34, coatZone: 1, combDir: [0, -0.35, -0.92] },
+    { pos: [0, -mh * 0.06, jawLen * 0.78], rx: mw * 0.76, ry: mh * 0.70, topFlat: 0.38, furScale: 0.16 + puff * 0.28, coatZ: 1.44, coatYCenter: 0.40, coatYSpan: 0.07, coatXSpan: 0.26, coatZone: 1, combDir: [0, -0.25, -0.95] },
+    { pos: [0, 0.0, jawLen * 0.96], rx: mw * 0.44, ry: mh * 0.42, topFlat: 0.30, furScale: 0.10 + puff * 0.20, coatZ: 1.49, coatYCenter: 0.42, coatYSpan: 0.05, coatXSpan: 0.16, coatZone: 1, combDir: [0, -0.15, -0.98] },
+    { pos: [0, 0.0, jawLen * 1.03], rx: mw * 0.08, ry: mh * 0.08, furScale: 0.05, coatZ: 1.51, coatYCenter: 0.43, coatYSpan: 0.02, coatXSpan: 0.05, coatZone: 1, combDir: [0, -0.10, -0.99] },
   ];
 
   return createOrganicLoft(sections, 14, bodyTransformFn);
+}
+
+function buildMouthLips(breed, snoutTipY, snoutTipZ, lipMat, disposables) {
+  const hs = breed.headSize;
+  const ml = breed.muzzleLength;
+  const mw = hs * breed.muzzleWidth * 0.74;
+  const mh = hs * breed.muzzleHeight * 0.62;
+  const lipR = Math.max(0.0020, hs * 0.036);
+
+  const upperGroup = new THREE.Group();
+
+  // Dark vertical philtrum cleft connecting nose leather down to upper lip center
+  const philCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, snoutTipY + mh * 0.10, snoutTipZ + hs * 0.015),
+    new THREE.Vector3(0, snoutTipY - mh * 0.74, snoutTipZ + hs * 0.005),
+  ]);
+  const philGeo = new THREE.TubeGeometry(philCurve, 6, lipR * 0.72, 6, false);
+  const philMesh = new THREE.Mesh(philGeo, lipMat);
+  upperGroup.add(philMesh);
+  disposables.geometries.push(philGeo);
+
+  // Sculpted black upper lip margin (flews + subtle natural canine smile curve)
+  for (const s of [-1, 1]) {
+    const lipCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, snoutTipY - mh * 0.72, snoutTipZ + hs * 0.004),
+      new THREE.Vector3(s * mw * 0.50, snoutTipY - mh * 0.88, snoutTipZ - ml * 0.15),
+      new THREE.Vector3(s * mw * 0.90, snoutTipY - mh * 0.94, snoutTipZ - ml * 0.48),
+      new THREE.Vector3(s * mw * 0.98, snoutTipY - mh * 0.76, snoutTipZ - ml * 0.82),
+      new THREE.Vector3(s * mw * 0.92, snoutTipY - mh * 0.56, snoutTipZ - ml * 1.00),
+    ]);
+    const lipGeo = new THREE.TubeGeometry(lipCurve, 14, lipR, 7, false);
+    const lipMesh = new THREE.Mesh(lipGeo, lipMat);
+    upperGroup.add(lipMesh);
+    disposables.geometries.push(lipGeo);
+  }
+
+  // Matching lower lip border on jaw so mouth stays crisp when open or closed
+  const jawLen = hs * 0.36 + ml * 0.82;
+  const lowerLipCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-mw * 0.72, mh * 0.24, jawLen * 0.42),
+    new THREE.Vector3(-mw * 0.58, mh * 0.26, jawLen * 0.82),
+    new THREE.Vector3(0, mh * 0.28, jawLen * 0.98),
+    new THREE.Vector3(mw * 0.58, mh * 0.26, jawLen * 0.82),
+    new THREE.Vector3(mw * 0.72, mh * 0.24, jawLen * 0.42),
+  ]);
+  const lowerLipGeo = new THREE.TubeGeometry(lowerLipCurve, 14, lipR * 0.82, 6, false);
+  const lowerLipMesh = new THREE.Mesh(lowerLipGeo, lipMat);
+  disposables.geometries.push(lowerLipGeo);
+
+  return { upperGroup, lowerLipMesh };
 }
 
 function buildEarMesh(breed, side, baseMat, shellMat, innerEarMat, bodyTransformFn, disposables) {
@@ -927,49 +1049,49 @@ function buildEarMesh(breed, side, baseMat, shellMat, innerEarMat, bodyTransform
   const group = new THREE.Group();
   const len = breed.earLength;
   const w = breed.earWidth;
-  const th = breed.earWidth * 0.24 * breed.earThickness;
+  const th = breed.earWidth * 0.22 * breed.earThickness;
   const isPoodle = breed.curl > 0.5;
-  const earFur = isPoodle ? 1.15 : (breed.earType === 'fold' ? 0.55 + breed.feathering * 0.55 : 0.42 + breed.fluffiness * 0.22);
+  const earFur = isPoodle ? 0.98 : (breed.earType === 'fold' ? 0.46 + breed.feathering * 0.42 : 0.36 + breed.fluffiness * 0.20);
 
   let sections;
   if (breed.earType === 'erect') {
     // Cupped triangular upright pinna pointing upward (+Y), concave face toward +Z
     sections = [
-      { pos: [0, -len * 0.06, 0], rx: w * 0.48, ry: th * 1.30, axis: 'y', furScale: earFur * 1.1, coatZ: 1.16, coatYCenter: 0.84, coatXOffset: side * 0.45, coatXSpan: 0.14, coatZone: 2, combDir: [0, 0.45, -0.85] },
-      { pos: [side * w * 0.04, len * 0.26, len * 0.03], rx: w * 0.54, ry: th * 1.05, axis: 'y', furScale: earFur, coatZ: 1.17, coatYCenter: 0.90, coatXOffset: side * 0.50, coatXSpan: 0.14, coatZone: 2, combDir: [0, 0.72, -0.65] },
-      { pos: [side * w * 0.08, len * 0.62, len * 0.05], rx: w * 0.38, ry: th * 0.78, axis: 'y', furScale: earFur * 0.85, coatZ: 1.18, coatYCenter: 0.96, coatXOffset: side * 0.54, coatXSpan: 0.10, coatZone: 2, combDir: [0, 0.85, -0.45] },
-      { pos: [side * w * 0.09, len * 0.90, len * 0.04], rx: w * 0.18, ry: th * 0.48, axis: 'y', furScale: earFur * 0.65, coatZ: 1.18, coatYCenter: 1.00, coatXOffset: side * 0.55, coatXSpan: 0.06, coatZone: 2, combDir: [0, 0.92, -0.30] },
-      { pos: [side * w * 0.09, len * 1.02, len * 0.02], rx: w * 0.04, ry: th * 0.15, axis: 'y', furScale: earFur * 0.40, coatZ: 1.18, coatYCenter: 1.02, coatXOffset: side * 0.55, coatXSpan: 0.03, coatZone: 2, combDir: [0, 0.96, -0.20] },
+      { pos: [0, -len * 0.08, 0], rx: w * 0.52, ry: th * 1.32, axis: 'y', furScale: earFur * 1.05, coatZ: 1.16, coatYCenter: 0.84, coatXOffset: side * 0.45, coatXSpan: 0.14, coatZone: 2, combDir: [0, 0.42, -0.88] },
+      { pos: [side * w * 0.04, len * 0.26, len * 0.03], rx: w * 0.56, ry: th * 1.05, axis: 'y', furScale: earFur * 0.95, coatZ: 1.17, coatYCenter: 0.90, coatXOffset: side * 0.50, coatXSpan: 0.14, coatZone: 2, combDir: [0, 0.72, -0.66] },
+      { pos: [side * w * 0.07, len * 0.62, len * 0.05], rx: w * 0.38, ry: th * 0.76, axis: 'y', furScale: earFur * 0.80, coatZ: 1.18, coatYCenter: 0.96, coatXOffset: side * 0.54, coatXSpan: 0.10, coatZone: 2, combDir: [0, 0.86, -0.46] },
+      { pos: [side * w * 0.08, len * 0.90, len * 0.04], rx: w * 0.18, ry: th * 0.46, axis: 'y', furScale: earFur * 0.58, coatZ: 1.18, coatYCenter: 1.00, coatXOffset: side * 0.55, coatXSpan: 0.06, coatZone: 2, combDir: [0, 0.92, -0.32] },
+      { pos: [side * w * 0.08, len * 1.02, len * 0.02], rx: w * 0.05, ry: th * 0.16, axis: 'y', furScale: earFur * 0.35, coatZ: 1.18, coatYCenter: 1.02, coatXOffset: side * 0.55, coatXSpan: 0.03, coatZone: 2, combDir: [0, 0.96, -0.20] },
     ];
   } else if (breed.earType === 'fold') {
-    // Golden/Labrador triangular folded ear: lifts slightly at base then drapes forward-down
+    // Golden/Labrador triangular folded ear: lifts slightly at base then drapes smoothly downward
     sections = [
-      { pos: [0, len * 0.05, 0], rx: th * 1.25, ry: w * 0.44, axis: 'y', furScale: earFur, coatZ: 1.15, coatYCenter: 0.82, coatXOffset: side * 0.52, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.25, -0.88, 0.35] },
-      { pos: [side * w * 0.22, -len * 0.16, len * 0.10], rx: th * 1.05, ry: w * 0.52, axis: 'y', furScale: earFur * 1.08, coatZ: 1.18, coatYCenter: 0.72, coatXOffset: side * 0.62, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.12, -0.94, 0.28] },
-      { pos: [side * w * 0.20, -len * 0.52, len * 0.18], rx: th * 0.86, ry: w * 0.48, axis: 'y', furScale: earFur * 1.12, coatZ: 1.21, coatYCenter: 0.60, coatXOffset: side * 0.62, coatXSpan: 0.10, coatZone: 2, combDir: [0, -0.96, 0.22] },
-      { pos: [side * w * 0.14, -len * 0.84, len * 0.20], rx: th * 0.64, ry: w * 0.32, axis: 'y', furScale: earFur * 1.05, coatZ: 1.22, coatYCenter: 0.50, coatXOffset: side * 0.58, coatXSpan: 0.08, coatZone: 2, combDir: [0, -0.98, 0.16] },
-      { pos: [side * w * 0.10, -len * 1.00, len * 0.18], rx: th * 0.20, ry: w * 0.08, axis: 'y', furScale: earFur * 0.70, coatZ: 1.22, coatYCenter: 0.45, coatXOffset: side * 0.55, coatXSpan: 0.04, coatZone: 2, combDir: [0, -0.99, 0.10] },
+      { pos: [0, len * 0.04, 0], rx: th * 1.15, ry: w * 0.44, axis: 'y', furScale: earFur, coatZ: 1.15, coatYCenter: 0.82, coatXOffset: side * 0.52, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.18, -0.92, 0.25] },
+      { pos: [side * w * 0.18, -len * 0.18, len * 0.10], rx: th * 0.96, ry: w * 0.52, axis: 'y', furScale: earFur * 1.04, coatZ: 1.18, coatYCenter: 0.72, coatXOffset: side * 0.60, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.08, -0.96, 0.20] },
+      { pos: [side * w * 0.16, -len * 0.54, len * 0.17], rx: th * 0.80, ry: w * 0.48, axis: 'y', furScale: earFur * 1.08, coatZ: 1.21, coatYCenter: 0.60, coatXOffset: side * 0.60, coatXSpan: 0.10, coatZone: 2, combDir: [0, -0.98, 0.16] },
+      { pos: [side * w * 0.12, -len * 0.86, len * 0.19], rx: th * 0.58, ry: w * 0.32, axis: 'y', furScale: earFur * 0.98, coatZ: 1.22, coatYCenter: 0.50, coatXOffset: side * 0.56, coatXSpan: 0.08, coatZone: 2, combDir: [0, -0.99, 0.12] },
+      { pos: [side * w * 0.08, -len * 1.00, len * 0.17], rx: th * 0.18, ry: w * 0.08, axis: 'y', furScale: earFur * 0.62, coatZ: 1.22, coatYCenter: 0.45, coatXOffset: side * 0.54, coatXSpan: 0.04, coatZone: 2, combDir: [0, -0.99, 0.08] },
     ];
   } else {
-    // 'drop': Long velvety pendulous ear (Beagle, Dachshund, fluffy Poodle)
+    // 'drop': Long velvety pendulous ear (Beagle, Dachshund, curly Poodle)
     sections = [
-      { pos: [0, 0.0, 0], rx: th * 1.20, ry: w * 0.42, axis: 'y', furScale: earFur, coatZ: 1.15, coatYCenter: 0.76, coatXOffset: side * 0.52, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.15, -0.95, 0.20] },
-      { pos: [side * w * 0.18, -len * 0.24, len * 0.08], rx: th * 1.05, ry: w * 0.54, axis: 'y', furScale: earFur * 1.05, coatZ: 1.18, coatYCenter: 0.64, coatXOffset: side * 0.60, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.05, -0.97, 0.16] },
-      { pos: [side * w * 0.16, -len * 0.62, len * 0.14], rx: th * 0.96, ry: w * 0.56, axis: 'y', furScale: earFur * 1.12, coatZ: 1.20, coatYCenter: 0.52, coatXOffset: side * 0.60, coatXSpan: 0.10, coatZone: 2, combDir: [0, -0.98, 0.14] },
-      { pos: [side * w * 0.10, -len * 0.90, len * 0.15], rx: th * 0.80, ry: w * 0.42, axis: 'y', furScale: earFur * 1.05, coatZ: 1.21, coatYCenter: 0.44, coatXOffset: side * 0.56, coatXSpan: 0.08, coatZone: 2, combDir: [0, -0.99, 0.10] },
-      { pos: [side * w * 0.08, -len * 1.02, len * 0.14], rx: th * 0.25, ry: w * 0.12, axis: 'y', furScale: earFur * 0.75, coatZ: 1.21, coatYCenter: 0.40, coatXOffset: side * 0.54, coatXSpan: 0.04, coatZone: 2, combDir: [0, -1.0, 0.05] },
+      { pos: [0, 0.0, 0], rx: th * 1.12, ry: w * 0.42, axis: 'y', furScale: earFur, coatZ: 1.15, coatYCenter: 0.76, coatXOffset: side * 0.52, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.12, -0.96, 0.18] },
+      { pos: [side * w * 0.15, -len * 0.24, len * 0.08], rx: th * 0.98, ry: w * 0.54, axis: 'y', furScale: earFur * 1.04, coatZ: 1.18, coatYCenter: 0.64, coatXOffset: side * 0.58, coatXSpan: 0.12, coatZone: 2, combDir: [side * 0.04, -0.98, 0.14] },
+      { pos: [side * w * 0.14, -len * 0.62, len * 0.14], rx: th * 0.90, ry: w * 0.56, axis: 'y', furScale: earFur * 1.08, coatZ: 1.20, coatYCenter: 0.52, coatXOffset: side * 0.58, coatXSpan: 0.10, coatZone: 2, combDir: [0, -0.99, 0.10] },
+      { pos: [side * w * 0.09, -len * 0.90, len * 0.15], rx: th * 0.74, ry: w * 0.42, axis: 'y', furScale: earFur * 0.98, coatZ: 1.21, coatYCenter: 0.44, coatXOffset: side * 0.54, coatXSpan: 0.08, coatZone: 2, combDir: [0, -0.99, 0.08] },
+      { pos: [side * w * 0.07, -len * 1.02, len * 0.14], rx: th * 0.22, ry: w * 0.12, axis: 'y', furScale: earFur * 0.68, coatZ: 1.21, coatYCenter: 0.40, coatXOffset: side * 0.52, coatXSpan: 0.04, coatZone: 2, combDir: [0, -1.0, 0.04] },
     ];
   }
 
   const earGeo = createOrganicLoft(sections, 14, bodyTransformFn);
-  addFurredPart(group, earGeo, baseMat, shellMat, 14, disposables);
+  addFurredPart(group, earGeo, baseMat, shellMat, 16, disposables);
 
   // Subtle pinkish-warm inner ear pinna for erect ears
   if (breed.earType === 'erect') {
     const innerGeo = new THREE.SphereGeometry(1, 12, 10);
-    innerGeo.scale(w * 0.28, len * 0.34, th * 0.35);
+    innerGeo.scale(w * 0.27, len * 0.34, th * 0.34);
     const innerMesh = new THREE.Mesh(innerGeo, innerEarMat);
-    innerMesh.position.set(side * w * 0.04, len * 0.38, th * 0.82 + len * 0.035);
+    innerMesh.position.set(side * w * 0.04, len * 0.38, th * 0.80 + len * 0.035);
     innerMesh.rotation.x = -0.05;
     group.add(innerMesh);
     disposables.geometries.push(innerGeo);
@@ -980,36 +1102,35 @@ function buildEarMesh(breed, side, baseMat, shellMat, innerEarMat, bodyTransform
 
 function buildNoseMesh(breed, noseMat, disposables) {
   const hs = breed.headSize;
-  const nw = hs * breed.muzzleWidth * 0.44;
-  const nh = hs * breed.muzzleHeight * 0.34;
-  const nd = nw * 0.68;
+  const nw = hs * breed.muzzleWidth * 0.74 * 0.52;
+  const nh = hs * breed.muzzleHeight * 0.62 * 0.48;
+  const nd = nw * 0.78;
 
   const group = new THREE.Group();
-  // Sculpted canine rhinarium (heart-bulbous leather shape with central philtrum & nostril indentations)
-  const geo = new THREE.SphereGeometry(1, 18, 14);
+  // Sculpted wet canine rhinarium (broad upper leather, central philtrum groove, comma nostrils)
+  const geo = new THREE.SphereGeometry(1, 20, 16);
   const pos = geo.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
     let y = pos.getY(i);
     let z = pos.getZ(i);
 
-    // Flatten front slightly, broaden upper bridge, narrow lower chin edge
     if (z > 0) z = Math.pow(z, 0.78) * 0.88;
-    const widthProfile = y > 0 ? 1.0 + 0.14 * y : 1.0 + 0.28 * y;
+    const widthProfile = y > 0 ? 1.0 + 0.16 * y : 1.0 + 0.30 * y;
     x *= widthProfile;
 
     // Central philtrum groove on lower front
     if (z > 0.2 && y < 0.15) {
-      const groove = Math.exp(-x * x * 24.0) * Math.max(0, 0.2 - y) * 0.24;
+      const groove = Math.exp(-x * x * 24.0) * Math.max(0, 0.2 - y) * 0.26;
       z -= groove;
     }
 
     // Bilateral comma-shaped nostril indentations
-    if (z > 0.35) {
+    if (z > 0.32) {
       const nx = Math.abs(x) - 0.42;
       const ny = y + 0.06;
       const d2 = nx * nx * 16.0 + ny * ny * 26.0;
-      const nostril = Math.exp(-d2) * 0.26;
+      const nostril = Math.exp(-d2) * 0.28;
       z -= nostril;
     }
 
@@ -1021,10 +1142,10 @@ function buildNoseMesh(breed, noseMat, disposables) {
   noseMesh.receiveShadow = true;
   group.add(noseMesh);
 
-  // Dark inner nostril cavities for realism up close
-  const darkMat = new THREE.MeshBasicMaterial({ color: 0x050404 });
+  // Dark inner nostril cavities
+  const darkMat = new THREE.MeshBasicMaterial({ color: 0x030202 });
   const holeGeo = new THREE.SphereGeometry(nw * 0.15, 8, 8);
-  holeGeo.scale(1.0, 0.72, 0.5);
+  holeGeo.scale(1.0, 0.74, 0.5);
   for (const s of [-1, 1]) {
     const hole = new THREE.Mesh(holeGeo, darkMat);
     hole.position.set(s * nw * 0.40, -nh * 0.06, nd * 0.66);
@@ -1038,13 +1159,12 @@ function buildNoseMesh(breed, noseMat, disposables) {
 
 function buildEyeAssembly(breed, side, irisMat, corneaMat, rimMat, eyelidMat, disposables) {
   const hs = breed.headSize;
-  const r = hs * (breed.id === 'poodle' ? 0.175 : breed.id === 'dachshund' ? 0.165 : 0.158);
+  const r = hs * (breed.id === 'poodle' ? 0.168 : breed.id === 'dachshund' ? 0.154 : 0.156);
 
   const eyePivot = new THREE.Group();
 
-  // Inner iris sphere (textured with iris + pupil centered on +Z)
-  const irisGeo = new THREE.SphereGeometry(r, 18, 14);
-  // Map front hemisphere (+Z) planarly onto the circular iris canvas texture
+  // Inner iris sphere (textured with rich iris + black pupil + wet catchlights centered on +Z)
+  const irisGeo = new THREE.SphereGeometry(r, 20, 16);
   const pos = irisGeo.getAttribute('position');
   const uv = irisGeo.getAttribute('uv');
   for (let i = 0; i < pos.count; i++) {
@@ -1052,7 +1172,7 @@ function buildEyeAssembly(breed, side, irisMat, corneaMat, rimMat, eyelidMat, di
     const py = pos.getY(i) / r;
     const pz = pos.getZ(i) / r;
     if (pz >= -0.1) {
-      uv.setXY(i, 0.5 + px * 0.52, 0.5 + py * 0.52);
+      uv.setXY(i, 0.5 + px * 0.50, 0.5 + py * 0.50);
     } else {
       uv.setXY(i, 0.02, 0.02);
     }
@@ -1062,60 +1182,63 @@ function buildEyeAssembly(breed, side, irisMat, corneaMat, rimMat, eyelidMat, di
   const eyeMesh = new THREE.Mesh(irisGeo, irisMat);
   eyePivot.add(eyeMesh);
 
-  // Outer wet glossy cornea dome for sharp sky/sun catchlights
-  const corneaGeo = new THREE.SphereGeometry(r * 1.045, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  // Outer wet glossy cornea dome for sharp live sky/sun specular reflections
+  const corneaGeo = new THREE.SphereGeometry(r * 1.055, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.58);
   corneaGeo.rotateX(Math.PI * 0.5);
   const corneaMesh = new THREE.Mesh(corneaGeo, corneaMat);
+  corneaMesh.renderOrder = 3;
   eyePivot.add(corneaMesh);
 
-  // Dark pigmented canine eyelid rim ("eyeliner") stays fixed to skull while eyeball tracks
-  const rimGeo = new THREE.TorusGeometry(r * 1.03, r * 0.15, 8, 18);
-  rimGeo.scale(1.06, 0.90, 0.72);
+  // Bold jet-black pigmented canine eyelid rim ("eyeliner") stays fixed to skull while eyeball tracks
+  const isAlmond = breed.id === 'shiba' || breed.id === 'husky' || breed.id === 'corgi';
+  const rimGeo = new THREE.TorusGeometry(r * 1.02, r * 0.21, 10, 22);
+  rimGeo.scale(isAlmond ? 1.15 : 1.08, isAlmond ? 0.86 : 0.92, 0.84);
   const rimMesh = new THREE.Mesh(rimGeo, rimMat);
-  rimMesh.position.z = r * 0.20;
+  rimMesh.position.z = r * 0.22;
+  rimMesh.rotation.z = side * (isAlmond ? 0.15 : 0.04);
 
   // Upper eyelid shell for smooth natural blinking
   const eyelidPivot = new THREE.Group();
-  const lidGeo = new THREE.SphereGeometry(r * 1.13, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.54);
+  const lidGeo = new THREE.SphereGeometry(r * 1.16, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.54);
   const lidMesh = new THREE.Mesh(lidGeo, eyelidMat);
-  lidMesh.rotation.x = -0.78; // Neutral open position (pulled back over top of eyeball)
+  lidMesh.rotation.x = -0.92; // Tucked cleanly above eyeball when open
   eyelidPivot.add(lidMesh);
 
   disposables.geometries.push(irisGeo, corneaGeo, rimGeo, lidGeo);
   return { eyePivot, eyeMesh, rimMesh, eyelidPivot };
 }
 
-function buildPawGeometry(legR, pawH, isFront, coatXOff, bodyTransformFn) {
-  const pw = legR * (isFront ? 1.24 : 1.14);
-  const pl = legR * (isFront ? 1.95 : 2.05);
+function buildPawGeometry(legR, pawH, isFront, side, bodyTransformFn) {
+  // Compact, plump, rounded canine paw cluster ("丸い肉球のあるかたまり")
+  const pw = legR * (isFront ? 1.38 : 1.28);
+  const pl = legR * (isFront ? 2.02 : 2.08);
 
   const sections = [
     // Heel / pastern back
-    { pos: [0, pawH * 0.55, -pl * 0.34], rx: pw * 0.62, ry: pawH * 0.48, furScale: 0.30, coatZ: isFront ? 0.55 : -0.55, coatYCenter: 0.08, coatYSpan: 0.05, coatXOffset: coatXOff, coatXSpan: 0.08, coatZone: 3, combDir: [0, -0.70, 0.70] },
-    // Mid-paw arch
-    { pos: [0, pawH * 0.52, pl * 0.06], rx: pw * 0.98, ry: pawH * 0.54, topFlat: 0.14, sideShiftY: -0.18, furScale: 0.28, coatZ: isFront ? 0.60 : -0.50, coatYCenter: 0.06, coatYSpan: 0.05, coatXOffset: coatXOff, coatXSpan: 0.10, coatZone: 3, combDir: [0, -0.55, 0.82] },
-    // Knuckles / toes
-    { pos: [0, pawH * 0.44, pl * 0.48], rx: pw * 1.02, ry: pawH * 0.46, topFlat: 0.10, sideShiftY: -0.22, furScale: 0.24, coatZ: isFront ? 0.64 : -0.46, coatYCenter: 0.05, coatYSpan: 0.04, coatXOffset: coatXOff, coatXSpan: 0.10, coatZone: 3, combDir: [0, -0.40, 0.90] },
-    // Rounded toe tips
-    { pos: [0, pawH * 0.34, pl * 0.72], rx: pw * 0.72, ry: pawH * 0.34, sideShiftY: -0.20, furScale: 0.18, coatZ: isFront ? 0.66 : -0.44, coatYCenter: 0.04, coatYSpan: 0.03, coatXOffset: coatXOff, coatXSpan: 0.08, coatZone: 3, combDir: [0, -0.25, 0.96] },
-    { pos: [0, pawH * 0.24, pl * 0.82], rx: pw * 0.16, ry: pawH * 0.12, furScale: 0.12, coatZ: isFront ? 0.67 : -0.43, coatYCenter: 0.03, coatYSpan: 0.02, coatXOffset: coatXOff, coatXSpan: 0.03, coatZone: 3, combDir: [0, -0.20, 0.98] },
+    { pos: [0, pawH * 0.58, -pl * 0.34], rx: pw * 0.68, ry: pawH * 0.52, furScale: 0.26, coatZ: isFront ? 0.55 : -0.55, coatYCenter: 0.08, coatYSpan: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.68, 0.72] },
+    // Plump arched mid-paw
+    { pos: [0, pawH * 0.56, pl * 0.08], rx: pw * 1.04, ry: pawH * 0.58, topFlat: 0.10, sideShiftY: -0.16, furScale: 0.24, coatZ: isFront ? 0.60 : -0.50, coatYCenter: 0.06, coatYSpan: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.52, 0.85] },
+    // Rounded toe knuckles
+    { pos: [0, pawH * 0.50, pl * 0.50], rx: pw * 1.08, ry: pawH * 0.52, topFlat: 0.08, sideShiftY: -0.20, furScale: 0.20, coatZ: isFront ? 0.64 : -0.46, coatYCenter: 0.05, coatYSpan: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.38, 0.92] },
+    // Plump rounded toe tips
+    { pos: [0, pawH * 0.38, pl * 0.76], rx: pw * 0.80, ry: pawH * 0.40, sideShiftY: -0.18, furScale: 0.16, coatZ: isFront ? 0.66 : -0.44, coatYCenter: 0.04, coatYSpan: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.24, 0.97] },
+    { pos: [0, pawH * 0.26, pl * 0.86], rx: pw * 0.20, ry: pawH * 0.16, furScale: 0.10, coatZ: isFront ? 0.67 : -0.43, coatYCenter: 0.03, coatYSpan: 0.02, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.20, 0.98] },
   ];
 
-  const geo = createOrganicLoft(sections, 14, bodyTransformFn);
+  const geo = createOrganicLoft(sections, 16, bodyTransformFn);
 
-  // Subtle 4-toe ridges along the front of the paw + flat ground contact at y = 0
+  // Distinct 4-toe cushion ridges + clean ground contact at y = -pawH (world y = 0)
   const pos = geo.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
     let y = pos.getY(i);
     let z = pos.getZ(i);
-    if (z > pl * 0.25) {
+    if (z > pl * 0.22) {
       const toeWave = Math.cos((x / Math.max(pw, 0.001)) * Math.PI * 3.5);
-      const t = Math.min(1, (z - pl * 0.25) / (pl * 0.50));
-      y += Math.max(0, toeWave) * pawH * 0.10 * t;
-      z += Math.max(0, toeWave) * pl * 0.045 * t;
+      const t = Math.min(1, (z - pl * 0.22) / (pl * 0.54));
+      y += Math.max(0, toeWave) * pawH * 0.13 * t;
+      z += Math.max(0, toeWave) * pl * 0.055 * t;
     }
-    // Flatten underside cleanly at y = 0 (paw joint sits at y = pawH above ground)
     const localBottom = y - pawH;
     const clampedY = Math.max(-pawH, localBottom);
     pos.setXYZ(i, x, clampedY, z);
@@ -1125,27 +1248,27 @@ function buildPawGeometry(legR, pawH, isFront, coatXOff, bodyTransformFn) {
 }
 
 function addPawPads(pawGroup, legR, pawH, isFront, padMat, disposables) {
-  const pw = legR * (isFront ? 1.15 : 1.05);
-  const pl = legR * (isFront ? 1.85 : 1.95);
-  const padGeo = new THREE.SphereGeometry(1, 8, 6);
+  const pw = legR * (isFront ? 1.28 : 1.18);
+  const pl = legR * (isFront ? 1.92 : 1.98);
+  const padGeo = new THREE.SphereGeometry(1, 10, 8);
 
-  // Main metacarpal/metatarsal heart pad
+  // Plump main metacarpal/metatarsal heart pad
   const mainPad = new THREE.Mesh(padGeo, padMat);
-  mainPad.scale.set(pw * 0.56, pawH * 0.14, pl * 0.26);
-  mainPad.position.set(0, -pawH + pawH * 0.08, pl * 0.04);
+  mainPad.scale.set(pw * 0.60, pawH * 0.20, pl * 0.28);
+  mainPad.position.set(0, -pawH + pawH * 0.10, pl * 0.05);
   pawGroup.add(mainPad);
 
-  // 4 small toe pads
+  // 4 plump rounded toe pads
   const toeOffsets = [
-    [-0.52, 0.42],
-    [-0.18, 0.54],
-    [0.18, 0.54],
-    [0.52, 0.42],
+    [-0.54, 0.44],
+    [-0.19, 0.58],
+    [0.19, 0.58],
+    [0.54, 0.44],
   ];
   for (const [tx, tz] of toeOffsets) {
     const tp = new THREE.Mesh(padGeo, padMat);
-    tp.scale.set(pw * 0.20, pawH * 0.12, pl * 0.14);
-    tp.position.set(tx * pw, -pawH + pawH * 0.08, tz * pl);
+    tp.scale.set(pw * 0.24, pawH * 0.18, pl * 0.16);
+    tp.position.set(tx * pw, -pawH + pawH * 0.10, tz * pl);
     pawGroup.add(tp);
   }
   disposables.geometries.push(padGeo);
@@ -1171,9 +1294,9 @@ export function buildDog(breedInput) {
 
   // --- Shared Fur Uniforms ---
   const scaleRef = Math.max(0.22, breed.shoulderHeight);
-  // Fine plush hair density (~3.5-5mm hair-tuft spacing scaled naturally to breed size)
-  const strandFreq = THREE.MathUtils.clamp(235.0 / Math.pow(scaleRef / 0.40, 0.55), 175, 340)
-    * (breed.curl > 0.5 ? 0.68 : 1.0);
+  // Fine silky hair density (much finer than chunky noise so coats look soft & natural)
+  const strandFreq = THREE.MathUtils.clamp(420.0 / Math.pow(scaleRef / 0.40, 0.55), 310, 560)
+    * (breed.curl > 0.5 ? 0.62 : 1.0);
 
   const furUniforms = {
     uPrimaryColor: { value: new THREE.Color(breed.primaryColor) },
@@ -1213,58 +1336,71 @@ export function buildDog(breedInput) {
   const noseBumpTex = createNoseBumpTexture();
   const noseMat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(breed.noseColor),
-    roughness: 0.24,
+    roughness: 0.14,
     metalness: 0.02,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.14,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 2.1,
     bumpMap: noseBumpTex,
-    bumpScale: 0.0018,
+    bumpScale: 0.0016,
   });
 
   const irisTex = createIrisTexture(breed.eyeColor);
   const irisMat = new THREE.MeshStandardMaterial({
     map: irisTex,
-    roughness: 0.14,
+    roughness: 0.08,
     metalness: 0.0,
   });
   const corneaMat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.02,
+    roughness: 0.01,
     metalness: 0.0,
     transmission: 0.0,
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.34,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
+    clearcoatRoughness: 0.01,
     reflectivity: 1.0,
-    envMapIntensity: 1.8,
+    envMapIntensity: 2.6,
     depthWrite: false,
   });
-  const eyeRimMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(breed.noseColor).lerp(new THREE.Color('#2a1d17'), 0.25),
-    roughness: 0.42,
+  // Crisp jet-black pigmented canine eyeliner
+  const eyeRimMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#090707'),
+    roughness: 0.24,
+    metalness: 0.0,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.25,
+  });
+  // Dark pigmented moist canine lip line
+  const lipMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#130f0f'),
+    roughness: 0.28,
+    metalness: 0.0,
+    clearcoat: 0.50,
+    clearcoatRoughness: 0.24,
   });
   const eyelidMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(breed.pattern === 'mask' ? breed.secondaryColor : breed.primaryColor),
     roughness: 0.85,
   });
   const innerEarMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#d8a89a').lerp(new THREE.Color(breed.secondaryColor), 0.35),
+    color: new THREE.Color('#d4a294').lerp(new THREE.Color(breed.secondaryColor), 0.30),
     roughness: 0.78,
   });
   const padMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(breed.padColor),
-    roughness: 0.82,
+    roughness: 0.78,
   });
   const mouthMat = new THREE.MeshStandardMaterial({
-    color: 0x5c262c,
-    roughness: 0.38,
+    color: 0x5c242a,
+    roughness: 0.36,
   });
   const tongueMat = new THREE.MeshPhysicalMaterial({
-    color: 0xd96e7a,
-    roughness: 0.28,
-    clearcoat: 0.65,
-    clearcoatRoughness: 0.22,
+    color: 0xd96b78,
+    roughness: 0.26,
+    clearcoat: 0.68,
+    clearcoatRoughness: 0.20,
   });
   const toothMat = new THREE.MeshStandardMaterial({
     color: 0xf4efe4,
@@ -1273,57 +1409,74 @@ export function buildDog(breedInput) {
   const whiskerMat = new THREE.MeshBasicMaterial({
     color: breed.pattern === 'saddle' ? 0x3b332e : 0xeae2d6,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.42,
   });
 
   disposables.textures.push(noseBumpTex, irisTex);
   disposables.materials.push(
-    noseMat, irisMat, corneaMat, eyeRimMat, eyelidMat,
+    noseMat, irisMat, corneaMat, eyeRimMat, lipMat, eyelidMat,
     innerEarMat, padMat, mouthMat, tongueMat, toothMat, whiskerMat
   );
 
   // ==========================================================================
   // Exact Proportions & Ground-Contact Trigonometry
+  // Chest bottom sits right at elbow height (H * legLengthRatio);
+  // True body length from prosternum to rump = 1.0 * B.
   // ==========================================================================
   const H = breed.shoulderHeight;
   const B = breed.bodyLength;
-  const cDepth = breed.chestDepth;
+  const legRatio = breed.legLengthRatio ?? 0.49;
   const cWidth = breed.chestWidth;
   const legR = breed.legRadius;
-  const pawH = Math.max(0.014, legR * 0.82);
+  const pawH = Math.max(0.017, legR * 0.98);
 
-  // Withers (top of shoulders) = H. Spine centerline sits just below withers.
+  // Withers = H, brisket/chest bottom = elbow height = H * legRatio
   const withersY = H;
-  const chestCenterY = withersY - cDepth * 0.46;
-  const shoulderY = withersY - cDepth * 0.56;
-  const hipY = shoulderY * 1.02;
-  const pelvisY = withersY - cDepth * 0.42;
+  const elbowY = Math.max(pawH * 2.05, H * legRatio);
+  const chestBottomY = elbowY;
+  const cDepth = Math.max(breed.chestDepth * 0.88, withersY - chestBottomY);
+  const chestCenterY = chestBottomY + cDepth * 0.5;
+  const halfD = cDepth * 0.5;
+  const halfW = cWidth * 0.5;
 
-  // Spine joint layout along Z (+Z forward)
-  const pelvisZ = -B * 0.34;
-  const spine1Z = B * 0.23;
-  const spine2Z = B * 0.24;
-  const chestZ = B * 0.24; // total pelvis->chest = 0.71 * B
+  // Level-to-gently-sloping topline (withers highest, croup ~97.5% of withers)
+  const pelvisHalfD = halfD * 0.86;
+  const croupTopY = withersY * 0.975;
+  const pelvisY = croupTopY - pelvisHalfD;
 
-  // Neutral standing leg angles (real canine angulation!)
-  const frontUpperX = 0.24;   // Humerus angled slightly backward from shoulder to elbow
-  const frontLowerX = -0.26;  // Forearm drops almost vertically down from elbow to wrist
+  // Shoulder sits inside mid-chest; humerus drops to elbow right at chest bottom
+  const shoulderY = elbowY + cDepth * 0.46;
+  // Hip sits in upper haunch; stifle sits near elbow/underline height
+  const hipY = Math.min(pelvisY + pelvisHalfD * 0.16, elbowY + cDepth * 0.54);
+  const stifleY = elbowY + cDepth * 0.05;
+
+  // Spine joint layout along Z (+Z forward): rump = -0.50*B, forechest = +0.50*B
+  const pelvisZ = -B * 0.31;
+  const spine1Z = B * 0.21;
+  const spine2Z = B * 0.21;
+  const chestZ = B * 0.20; // total pelvis->chest = 0.62 * B
+
+  // Real canine limb angulation (humerus angles back to elbow; forearm drops vertical)
+  const frontUpperX = 0.36;
+  const frontLowerX = -0.36;
   const frontPawX = -(frontUpperX + frontLowerX);
 
-  const backUpperX = -0.34;   // Femur angled forward from hip to stifle
-  const backLowerX = 0.50;    // Tibia+hock angled back (+0.16 world) to hind paw
+  const backUpperX = -0.40;
+  const backLowerX = 0.56;
   const backPawX = -(backUpperX + backLowerX);
 
   // Solve exact segment lengths so bottoms of ALL FOUR paws sit at y = 0.000
-  const effDropF = Math.max(0.06, shoulderY - pawH);
-  const frontUpperLen = (effDropF * 0.43) / Math.cos(frontUpperX);
-  const frontLowerLen = (effDropF * 0.57) / Math.cos(frontUpperX + frontLowerX);
+  const dropUpperF = Math.max(0.035, shoulderY - elbowY);
+  const dropLowerF = Math.max(0.025, elbowY - pawH);
+  const frontUpperLen = dropUpperF / Math.cos(frontUpperX);
+  const frontLowerLen = dropLowerF / Math.cos(frontUpperX + frontLowerX);
 
-  const effDropB = Math.max(0.06, hipY - pawH);
-  const backUpperLen = (effDropB * 0.47) / Math.cos(backUpperX);
-  const backLowerLen = (effDropB * 0.53) / Math.cos(backUpperX + backLowerX);
+  const dropUpperB = Math.max(0.035, hipY - stifleY);
+  const dropLowerB = Math.max(0.025, stifleY - pawH);
+  const backUpperLen = dropUpperB / Math.cos(backUpperX);
+  const backLowerLen = dropLowerB / Math.cos(backUpperX + backLowerX);
 
-  const legClearance = Math.max(0.04, chestCenterY - cDepth * 0.52);
+  const legClearance = Math.max(0.035, chestBottomY);
 
   // ==========================================================================
   // Skeleton Hierarchy (matching SPEC.md joints)
@@ -1348,21 +1501,21 @@ export function buildDog(breedInput) {
   chest.position.set(0, chestCenterY - pelvisY, chestZ);
   spine2.add(chest);
 
-  const neckBaseY = cDepth * 0.24;
-  const neckBaseZ = B * 0.14;
+  const neckBaseY = halfD * 0.36;
+  const neckBaseZ = B * 0.08;
   const neck = new THREE.Group();
   neck.name = 'neck';
   neck.position.set(0, neckBaseY, neckBaseZ);
-  const neckNeutralX = 0.52; // +X tilts +Y neck forward (~30 deg forward from vertical)
+  const neckNeutralX = 0.66; // Natural forward-alert canine neck angle (~38 deg from vertical)
   neck.rotation.x = neckNeutralX;
   chest.add(neck);
 
-  const headBaseY = breed.neckLength * 0.94;
-  const headBaseZ = breed.neckLength * 0.06;
+  const headBaseY = breed.neckLength * 0.84;
+  const headBaseZ = breed.neckLength * 0.08;
   const head = new THREE.Group();
   head.name = 'head';
   head.position.set(0, headBaseY, headBaseZ);
-  const headNeutralX = -neckNeutralX + 0.06; // Counters neck pitch so head looks gently level forward
+  const headNeutralX = -neckNeutralX + 0.08; // Counters neck pitch so head sits gently level
   head.rotation.x = headNeutralX;
   neck.add(head);
 
@@ -1377,55 +1530,71 @@ export function buildDog(breedInput) {
   };
 
   // ==========================================================================
-  // Torso Sculpting (Pelvis, Spine1, Spine2, Chest — overlapping seamlessly)
+  // Torso Sculpting (Pelvis, Spine1, Spine2, Chest — deep ribcage & level back)
   // ==========================================================================
-  const halfW = cWidth * 0.5;
-  const halfD = cDepth * 0.5;
   const waistFactor = 1.0 - breed.waistTuck;
-  const ruffScale = 1.0 + breed.ruff * 0.52;
-  const bellyFeather = breed.feathering * 0.55;
+  const ruffScale = 1.0 + breed.ruff * 0.42;
+  const bellyFeather = breed.feathering * 0.46;
 
-  // 1. Pelvis / Rump
+  // Helper to align ring tops cleanly along the straight canine topline
+  const topAlignY = (ringRy, targetTop) => targetTop - ringRy;
+  const pelvisTopRel = croupTopY - pelvisY; // = pelvisHalfD
+  const midBackTopRel = (withersY * 0.985) - pelvisY;
+  const ribTopRel = (withersY * 0.995) - pelvisY;
+
+  // 1. Pelvis / Rump (spans world -0.50*B to -0.11*B)
+  const pR1 = pelvisHalfD * 0.82;
+  const pR2 = pelvisHalfD * 0.98;
+  const pR3 = pelvisHalfD * (0.86 + 0.12 * waistFactor);
+  const pR4 = pelvisHalfD * (0.78 + 0.14 * waistFactor);
   const pelvisGeo = createOrganicLoft([
-    { pos: [0, -halfD * 0.10, -B * 0.22], rx: halfW * 0.18, ry: halfD * 0.18, furScale: 1.05, coatZ: -0.95, coatYCenter: 0.66, coatYSpan: 0.10, coatXSpan: 0.22, coatZone: 0 },
-    { pos: [0, -halfD * 0.04, -B * 0.16], rx: halfW * 0.72, ry: halfD * 0.64, topFlat: 0.12, furScale: 1.05, coatZ: -0.85, coatYCenter: 0.68, coatYSpan: 0.24, coatXSpan: 0.72, coatZone: 0 },
-    { pos: [0, 0.0, -B * 0.04], rx: halfW * 0.86, ry: halfD * 0.78, topFlat: 0.20, bottomPinch: 0.16, furScale: 1.02, coatZ: -0.62, coatYCenter: 0.70, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0, bottomFeather: bellyFeather * 0.4 },
-    { pos: [0, halfD * 0.03, B * 0.10], rx: halfW * 0.82 * waistFactor * 1.06, ry: halfD * 0.74 * (0.85 + 0.15 * waistFactor), topFlat: 0.22, bottomPinch: 0.22, furScale: 0.98, coatZ: -0.35, coatYCenter: 0.72, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0, bottomFeather: bellyFeather * 0.5 },
-    { pos: [0, halfD * 0.04, B * 0.22], rx: halfW * 0.72 * waistFactor, ry: halfD * 0.64 * waistFactor, topFlat: 0.20, furScale: 0.94, coatZ: -0.15, coatYCenter: 0.72, coatYSpan: 0.22, coatXSpan: 0.72, coatZone: 0 },
-  ], 20, makeOffsetTransform(neutralPelvisPos.x, neutralPelvisPos.y, neutralPelvisPos.z));
-  addFurredPart(pelvis, pelvisGeo, baseCoatMat, shellFurMat, 18, disposables);
+    { pos: [0, -pelvisHalfD * 0.06, -B * 0.19], rx: halfW * 0.20, ry: pelvisHalfD * 0.20, furScale: 0.96, coatZ: -0.95, coatYCenter: 0.66, coatYSpan: 0.12, coatXSpan: 0.24, coatZone: 0 },
+    { pos: [0, topAlignY(pR1, pelvisTopRel * 0.94), -B * 0.13], rx: halfW * 0.78, ry: pR1, topFlat: 0.14, furScale: 1.02, coatZ: -0.84, coatYCenter: 0.68, coatYSpan: 0.24, coatXSpan: 0.76, coatZone: 0 },
+    { pos: [0, topAlignY(pR2, pelvisTopRel), -B * 0.02], rx: halfW * 0.92, ry: pR2, topFlat: 0.20, bottomPinch: 0.16, furScale: 1.02, coatZ: -0.60, coatYCenter: 0.68, coatYSpan: 0.28, coatXSpan: 0.90, coatZone: 0, bottomFeather: bellyFeather * 0.35 },
+    { pos: [0, topAlignY(pR3, midBackTopRel), B * 0.10], rx: halfW * 0.86 * (0.86 + 0.14 * waistFactor), ry: pR3, topFlat: 0.22, bottomPinch: 0.20, furScale: 0.98, coatZ: -0.34, coatYCenter: 0.70, coatYSpan: 0.26, coatXSpan: 0.84, coatZone: 0, bottomFeather: bellyFeather * 0.45 },
+    { pos: [0, topAlignY(pR4, midBackTopRel), B * 0.20], rx: halfW * 0.76 * (0.84 + 0.16 * waistFactor), ry: pR4, topFlat: 0.18, furScale: 0.94, coatZ: -0.14, coatYCenter: 0.70, coatYSpan: 0.24, coatXSpan: 0.74, coatZone: 0 },
+  ], 22, makeOffsetTransform(neutralPelvisPos.x, neutralPelvisPos.y, neutralPelvisPos.z));
+  addFurredPart(pelvis, pelvisGeo, baseCoatMat, shellFurMat, 20, disposables);
 
-  // 2. Spine1 (Loins / tucked waist)
+  // 2. Spine1 (Loin / smooth upward belly tuck while topline stays straight)
+  const s1R0 = pelvisHalfD * (0.84 + 0.12 * waistFactor);
+  const s1R1 = halfD * (0.76 + 0.18 * waistFactor);
+  const s1R2 = halfD * 0.94;
+  const s1R3 = halfD * 0.88;
   const spine1Geo = createOrganicLoft([
-    { pos: [0, halfD * 0.02, -B * 0.14], rx: halfW * 0.78, ry: halfD * 0.70, topFlat: 0.20, bottomPinch: 0.18, furScale: 0.96, coatZ: -0.35, coatYCenter: 0.72, coatYSpan: 0.25, coatXSpan: 0.78, coatZone: 0 },
-    { pos: [0, halfD * 0.06, 0.0], rx: halfW * 0.79 * (0.78 + 0.22 * waistFactor), ry: halfD * 0.74 * (0.78 + 0.22 * waistFactor), topFlat: 0.22, bottomPinch: 0.22, furScale: 0.98, coatZ: -0.08, coatYCenter: 0.73, coatYSpan: 0.25, coatXSpan: 0.80, coatZone: 0, bottomFeather: bellyFeather * 0.7 },
-    { pos: [0, halfD * 0.03, B * 0.15], rx: halfW * 0.88, ry: halfD * 0.86, topFlat: 0.22, bottomPinch: 0.18, furScale: 1.00, coatZ: 0.16, coatYCenter: 0.70, coatYSpan: 0.28, coatXSpan: 0.88, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
-    { pos: [0, 0.0, B * 0.25], rx: halfW * 0.82, ry: halfD * 0.82, topFlat: 0.18, furScale: 0.96, coatZ: 0.30, coatYCenter: 0.68, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0 },
-  ], 20, makeOffsetTransform(neutralSpine1Pos.x, neutralSpine1Pos.y, neutralSpine1Pos.z));
-  addFurredPart(spine1, spine1Geo, baseCoatMat, shellFurMat, 18, disposables);
+    { pos: [0, topAlignY(s1R0, midBackTopRel), -B * 0.12], rx: halfW * 0.82, ry: s1R0, topFlat: 0.20, bottomPinch: 0.18, furScale: 0.96, coatZ: -0.34, coatYCenter: 0.70, coatYSpan: 0.26, coatXSpan: 0.80, coatZone: 0 },
+    { pos: [0, topAlignY(s1R1, midBackTopRel), 0.0], rx: halfW * (0.82 + 0.16 * waistFactor), ry: s1R1, topFlat: 0.22, bottomPinch: 0.22, furScale: 0.98, coatZ: -0.08, coatYCenter: 0.71, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0, bottomFeather: bellyFeather * 0.65 },
+    { pos: [0, topAlignY(s1R2, ribTopRel), B * 0.13], rx: halfW * 0.95, ry: s1R2, topFlat: 0.22, bottomPinch: 0.20, furScale: 1.00, coatZ: 0.16, coatYCenter: 0.68, coatYSpan: 0.29, coatXSpan: 0.92, coatZone: 0, bottomFeather: bellyFeather * 0.80 },
+    { pos: [0, topAlignY(s1R3, ribTopRel), B * 0.22], rx: halfW * 0.88, ry: s1R3, topFlat: 0.18, furScale: 0.96, coatZ: 0.30, coatYCenter: 0.66, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0 },
+  ], 22, makeOffsetTransform(neutralSpine1Pos.x, neutralSpine1Pos.y, neutralSpine1Pos.z));
+  addFurredPart(spine1, spine1Geo, baseCoatMat, shellFurMat, 20, disposables);
 
-  // 3. Spine2 (Mid-ribcage)
+  // 3. Spine2 (Deep mid-ribcage)
+  const s2R0 = halfD * 0.90;
+  const s2R1 = halfD * 0.98;
+  const s2R2 = halfD * 1.00;
+  const s2R3 = halfD * 0.92;
   const spine2Geo = createOrganicLoft([
-    { pos: [0, halfD * 0.04, -B * 0.14], rx: halfW * 0.80, ry: halfD * 0.78, topFlat: 0.20, bottomPinch: 0.18, furScale: 0.98, coatZ: 0.05, coatYCenter: 0.71, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0 },
-    { pos: [0, 0.0, 0.0], rx: halfW * 0.96, ry: halfD * 0.95, topFlat: 0.22, bottomPinch: 0.16, furScale: 1.04, coatZ: 0.28, coatYCenter: 0.68, coatYSpan: 0.30, coatXSpan: 0.94, coatZone: 0, bottomFeather: bellyFeather * 0.9 },
-    { pos: [0, -halfD * 0.03, B * 0.16], rx: halfW * 1.00, ry: halfD * 1.00, topFlat: 0.22, bottomPinch: 0.18, furScale: 1.06, coatZ: 0.50, coatYCenter: 0.66, coatYSpan: 0.31, coatXSpan: 0.98, coatZone: 0, bottomFeather: bellyFeather * 0.9 },
-    { pos: [0, -halfD * 0.04, B * 0.26], rx: halfW * 0.88, ry: halfD * 0.88, topFlat: 0.16, furScale: 1.02, coatZ: 0.64, coatYCenter: 0.66, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0 },
-  ], 20, makeOffsetTransform(neutralSpine2Pos.x, neutralSpine2Pos.y, neutralSpine2Pos.z));
-  addFurredPart(spine2, spine2Geo, baseCoatMat, shellFurMat, 18, disposables);
+    { pos: [0, topAlignY(s2R0, ribTopRel), -B * 0.12], rx: halfW * 0.88, ry: s2R0, topFlat: 0.20, bottomPinch: 0.20, furScale: 0.98, coatZ: 0.06, coatYCenter: 0.69, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0 },
+    { pos: [0, topAlignY(s2R1, ribTopRel), 0.0], rx: halfW * 0.98, ry: s2R1, topFlat: 0.22, bottomPinch: 0.22, furScale: 1.02, coatZ: 0.28, coatYCenter: 0.66, coatYSpan: 0.31, coatXSpan: 0.96, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
+    { pos: [0, topAlignY(s2R2, withersY - pelvisY), B * 0.13], rx: halfW * 1.02, ry: s2R2, topFlat: 0.20, bottomPinch: 0.24, furScale: 1.04, coatZ: 0.48, coatYCenter: 0.64, coatYSpan: 0.32, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
+    { pos: [0, topAlignY(s2R3, withersY - pelvisY), B * 0.22], rx: halfW * 0.92, ry: s2R3, topFlat: 0.16, furScale: 1.00, coatZ: 0.62, coatYCenter: 0.64, coatYSpan: 0.30, coatXSpan: 0.90, coatZone: 0 },
+  ], 22, makeOffsetTransform(neutralSpine2Pos.x, neutralSpine2Pos.y, neutralSpine2Pos.z));
+  addFurredPart(spine2, spine2Geo, baseCoatMat, shellFurMat, 20, disposables);
 
-  // 4. Chest / Forechest (deep keel, muscular withers, prominent prosternum)
+  // 4. Chest / Forechest (deep keel down to elbows, broad muscular withers & prosternum)
   const chestGeo = createOrganicLoft([
-    { pos: [0, 0.02 * halfD, -B * 0.16], rx: halfW * 0.88, ry: halfD * 0.90, topFlat: 0.20, bottomPinch: 0.16, furScale: 1.04, coatZ: 0.44, coatYCenter: 0.68, coatYSpan: 0.29, coatXSpan: 0.90, coatZone: 0 },
-    { pos: [0, 0.0, -B * 0.02], rx: halfW * 1.02, ry: halfD * 1.04, topFlat: 0.20, bottomPinch: 0.20, furScale: 1.10, coatZ: 0.64, coatYCenter: 0.66, coatYSpan: 0.32, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.9 },
-    { pos: [0, -halfD * 0.02, B * 0.13], rx: halfW * 0.94, ry: halfD * 0.96, topFlat: 0.16, bottomPinch: 0.24, furScale: ruffScale, coatZ: 0.80, coatYCenter: 0.64, coatYSpan: 0.30, coatXSpan: 0.92, coatZone: 0, bottomFeather: breed.ruff * 0.65 },
-    // Forechest / prosternum rounding smoothly forward
-    { pos: [0, -halfD * 0.06, B * 0.24], rx: halfW * 0.64, ry: halfD * 0.68, bottomPinch: 0.22, furScale: ruffScale * 1.05, coatZ: 0.90, coatYCenter: 0.60, coatYSpan: 0.24, coatXSpan: 0.62, coatZone: 0, bottomFeather: breed.ruff * 0.70 },
-    { pos: [0, -halfD * 0.08, B * 0.29], rx: halfW * 0.18, ry: halfD * 0.18, furScale: ruffScale * 0.85, coatZ: 0.95, coatYCenter: 0.58, coatYSpan: 0.10, coatXSpan: 0.20, coatZone: 0 },
-  ], 22, makeOffsetTransform(neutralChestPos.x, neutralChestPos.y, neutralChestPos.z));
-  addFurredPart(chest, chestGeo, baseCoatMat, shellFurMat, 18, disposables);
+    { pos: [0, 0.02 * halfD, -B * 0.14], rx: halfW * 0.94, ry: halfD * 0.95, topFlat: 0.20, bottomPinch: 0.20, furScale: 1.02, coatZ: 0.44, coatYCenter: 0.66, coatYSpan: 0.30, coatXSpan: 0.92, coatZone: 0 },
+    { pos: [0, 0.0, -B * 0.02], rx: halfW * 1.04, ry: halfD * 1.01, topFlat: 0.18, bottomPinch: 0.24, furScale: 1.06, coatZ: 0.64, coatYCenter: 0.64, coatYSpan: 0.33, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
+    { pos: [0, -halfD * 0.03, B * 0.09], rx: halfW * 0.94, ry: halfD * 0.92, topFlat: 0.14, bottomPinch: 0.24, furScale: ruffScale, coatZ: 0.80, coatYCenter: 0.62, coatYSpan: 0.31, coatXSpan: 0.92, coatZone: 0, bottomFeather: breed.ruff * 0.55 },
+    // Prominent canine forechest / prosternum
+    { pos: [0, -halfD * 0.07, B * 0.16], rx: halfW * 0.64, ry: halfD * 0.64, bottomPinch: 0.22, furScale: ruffScale * 1.02, coatZ: 0.90, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.62, coatZone: 0, bottomFeather: breed.ruff * 0.60 },
+    { pos: [0, -halfD * 0.09, B * 0.19], rx: halfW * 0.18, ry: halfD * 0.18, furScale: ruffScale * 0.82, coatZ: 0.95, coatYCenter: 0.56, coatYSpan: 0.10, coatXSpan: 0.20, coatZone: 0 },
+  ], 24, makeOffsetTransform(neutralChestPos.x, neutralChestPos.y, neutralChestPos.z));
+  addFurredPart(chest, chestGeo, baseCoatMat, shellFurMat, 20, disposables);
 
   // ==========================================================================
-  // Neck & Head Assembly
+  // Neck & Head Assembly (Thick muscular short neck, full expressive head)
   // ==========================================================================
   const nl = breed.neckLength;
   const nr = breed.neckRadius;
@@ -1436,13 +1605,13 @@ export function buildDog(breedInput) {
   };
 
   const neckGeo = createOrganicLoft([
-    { pos: [0, -nl * 0.24, -nr * 0.12], rx: nr * 1.24, ry: nr * 1.32, axis: 'y', furScale: ruffScale * 1.05, coatZ: 0.88, coatYCenter: 0.74, coatXSpan: 0.72, coatZone: 0, combDir: [0, -0.78, -0.60] },
-    { pos: [0, nl * 0.12, 0.0], rx: nr * 1.08, ry: nr * 1.15, axis: 'y', furScale: ruffScale, coatZ: 0.96, coatYCenter: 0.76, coatXSpan: 0.66, coatZone: 0, combDir: [0, -0.82, -0.56] },
-    { pos: [0, nl * 0.56, nr * 0.05], rx: nr * 0.90, ry: nr * 0.94, axis: 'y', furScale: 0.92 + breed.ruff * 0.36, coatZ: 1.04, coatYCenter: 0.78, coatXSpan: 0.58, coatZone: 0, combDir: [0, -0.84, -0.52] },
-    { pos: [0, nl * 0.98, nr * 0.08], rx: nr * 0.82, ry: nr * 0.84, axis: 'y', furScale: 0.82 + breed.ruff * 0.20, coatZ: 1.10, coatYCenter: 0.78, coatXSpan: 0.52, coatZone: 0, combDir: [0, -0.85, -0.50] },
-    { pos: [0, nl * 1.12, nr * 0.08], rx: nr * 0.45, ry: nr * 0.45, axis: 'y', furScale: 0.65, coatZ: 1.12, coatYCenter: 0.78, coatXSpan: 0.30, coatZone: 0, combDir: [0, -0.85, -0.50] },
-  ], 18, neckBodyFn);
-  addFurredPart(neck, neckGeo, baseCoatMat, shellFurMat, 18, disposables);
+    { pos: [0, -nl * 0.34, -nr * 0.14], rx: nr * 1.32, ry: nr * 1.44, axis: 'y', furScale: ruffScale * 1.04, coatZ: 0.86, coatYCenter: 0.64, coatYSpan: 0.24, coatXSpan: 0.72, coatZone: 0, combDir: [0, -0.78, -0.60] },
+    { pos: [0, nl * 0.08, 0.0], rx: nr * 1.14, ry: nr * 1.24, axis: 'y', furScale: ruffScale, coatZ: 0.95, coatYCenter: 0.65, coatYSpan: 0.24, coatXSpan: 0.66, coatZone: 0, combDir: [0, -0.82, -0.56] },
+    { pos: [0, nl * 0.50, nr * 0.04], rx: nr * 0.98, ry: nr * 1.04, axis: 'y', furScale: 0.94 + breed.ruff * 0.30, coatZ: 1.03, coatYCenter: 0.66, coatYSpan: 0.24, coatXSpan: 0.58, coatZone: 0, combDir: [0, -0.84, -0.52] },
+    { pos: [0, nl * 0.88, nr * 0.06], rx: nr * 0.90, ry: nr * 0.94, axis: 'y', furScale: 0.84 + breed.ruff * 0.18, coatZ: 1.09, coatYCenter: 0.67, coatYSpan: 0.22, coatXSpan: 0.52, coatZone: 0, combDir: [0, -0.85, -0.50] },
+    { pos: [0, nl * 1.06, nr * 0.06], rx: nr * 0.52, ry: nr * 0.52, axis: 'y', furScale: 0.64, coatZ: 1.12, coatYCenter: 0.68, coatYSpan: 0.16, coatXSpan: 0.30, coatZone: 0, combDir: [0, -0.85, -0.50] },
+  ], 20, neckBodyFn);
+  addFurredPart(neck, neckGeo, baseCoatMat, shellFurMat, 20, disposables);
 
   // Head body-space transform
   const headNeutralWorld = new THREE.Vector3(0, headBaseY, headBaseZ).applyQuaternion(neckQuat).add(neckNeutralWorld);
@@ -1454,34 +1623,40 @@ export function buildDog(breedInput) {
   const hs = breed.headSize;
   const ml = breed.muzzleLength;
   const stop = breed.stopDepth;
-  const puff = breed.curl * 0.20;
-  const eyeR = hs * (breed.id === 'poodle' ? 0.175 : breed.id === 'dachshund' ? 0.165 : 0.158);
-  const eyeX = hs * 0.48 * (1 + puff * 0.18) * (breed.id === 'dachshund' ? 0.92 : 1.0);
-  const eyeY = hs * (0.24 - stop * 0.08);
-  const eyeZ = hs * (0.50 + (1.0 - stop) * 0.05);
+  const puff = breed.curl * 0.16;
+  const upperMw = hs * breed.muzzleWidth * 0.74;
+  const upperMh = hs * breed.muzzleHeight * 0.62;
+  const eyeR = hs * (breed.id === 'poodle' ? 0.168 : breed.id === 'dachshund' ? 0.154 : 0.156);
+  const eyeX = hs * 0.42 * (1 + puff * 0.16) * (breed.id === 'dachshund' ? 0.92 : 1.0);
+  const eyeY = hs * (0.20 - stop * 0.06);
+  const eyeZ = hs * (0.48 + (1.0 - stop) * 0.05);
 
-  // Cranium + continuous muzzle (with sculpted eye-socket clear zone)
+  // Cranium + continuous muzzle (with sculpted clear orbital sockets)
   const headGeo = buildHeadGeometry(breed, headBodyFn, { eyeX, eyeY, eyeZ, eyeR });
-  addFurredPart(head, headGeo, baseCoatMat, shellFurMat, 18, disposables);
+  addFurredPart(head, headGeo, baseCoatMat, shellFurMat, 20, disposables);
 
-  const snoutTipY = -hs * (0.08 + stop * 0.13);
-  const snoutTipZ = hs * 0.50 + ml * 1.00;
+  const snoutTipY = -hs * (0.06 + stop * 0.11);
+  const snoutTipZ = hs * 0.46 + ml * 1.00;
 
-  // Wet Nose
+  // Wet Glossy Black Nose
   const noseGroup = buildNoseMesh(breed, noseMat, disposables);
-  noseGroup.position.set(0, snoutTipY + hs * 0.055, snoutTipZ + hs * 0.02);
+  noseGroup.position.set(0, snoutTipY + upperMh * 0.22, snoutTipZ + hs * 0.018);
   head.add(noseGroup);
 
-  // Whiskers (subtle translucent vibrissae on muzzle sides)
-  const whiskerGeo = new THREE.CylinderGeometry(0.0004, 0.00015, hs * 0.65, 4);
+  // Crisp Dark Pigmented Upper/Lower Mouth Lips & Philtrum
+  const { upperGroup: upperLips, lowerLipMesh } = buildMouthLips(breed, snoutTipY, snoutTipZ, lipMat, disposables);
+  head.add(upperLips);
+
+  // Subtle translucent vibrissae (whiskers)
+  const whiskerGeo = new THREE.CylinderGeometry(0.0004, 0.00015, hs * 0.56, 4);
   whiskerGeo.rotateZ(Math.PI * 0.5);
   disposables.geometries.push(whiskerGeo);
   for (const s of [-1, 1]) {
     for (let w = 0; w < 3; w++) {
       const wm = new THREE.Mesh(whiskerGeo, whiskerMat);
       wm.position.set(
-        s * (hs * breed.muzzleWidth * 0.75 + hs * 0.22),
-        snoutTipY - hs * 0.04 + (w - 1) * hs * 0.045,
+        s * (upperMw * 0.85 + hs * 0.18),
+        snoutTipY - upperMh * 0.20 + (w - 1) * hs * 0.036,
         snoutTipZ - ml * 0.22 - w * ml * 0.06
       );
       wm.rotation.y = -s * (0.28 + w * 0.12);
@@ -1490,10 +1665,10 @@ export function buildDog(breedInput) {
     }
   }
 
-  // Lower Jaw, Inner Mouth, Subtle Teeth & Flexible Pink Tongue
+  // Lower Jaw, Inner Mouth, Teeth & Flexible Pink Tongue
   const jaw = new THREE.Group();
   jaw.name = 'jaw';
-  jaw.position.set(0, -hs * (0.28 + stop * 0.06), hs * 0.08);
+  jaw.position.set(0, snoutTipY - upperMh * 0.72, hs * 0.10);
   head.add(jaw);
 
   const jawBodyFn = (local, out) => {
@@ -1502,40 +1677,41 @@ export function buildDog(breedInput) {
       .add(headNeutralWorld);
   };
   const jawGeo = buildJawGeometry(breed, jawBodyFn);
-  addFurredPart(jaw, jawGeo, baseCoatMat, shellFurMat, 14, disposables);
+  addFurredPart(jaw, jawGeo, baseCoatMat, shellFurMat, 16, disposables);
+  jaw.add(lowerLipMesh);
 
-  // Dark inner mouth interior (upper palate + lower floor)
+  // Inner mouth interior (upper palate + lower floor)
   const palateGeo = new THREE.SphereGeometry(1, 10, 8);
-  palateGeo.scale(hs * breed.muzzleWidth * 0.58, hs * 0.14, ml * 0.66);
+  palateGeo.scale(upperMw * 0.68, upperMh * 0.30, ml * 0.64);
   const palateMesh = new THREE.Mesh(palateGeo, mouthMat);
-  palateMesh.position.set(0, snoutTipY - hs * 0.13, hs * 0.50 + ml * 0.42);
+  palateMesh.position.set(0, snoutTipY - upperMh * 0.42, hs * 0.46 + ml * 0.42);
   head.add(palateMesh);
 
   const jawFloorMesh = new THREE.Mesh(palateGeo, mouthMat);
   jawFloorMesh.scale.set(0.86, 0.75, 0.85);
-  jawFloorMesh.position.set(0, hs * 0.04, hs * 0.34 + ml * 0.36);
+  jawFloorMesh.position.set(0, upperMh * 0.12, hs * 0.30 + ml * 0.36);
   jaw.add(jawFloorMesh);
   disposables.geometries.push(palateGeo);
 
-  // Small sculpted white canine teeth (tucked neatly inside lips, visible during bark, yawn, pant)
-  const toothGeo = new THREE.ConeGeometry(hs * 0.036, hs * 0.095, 6);
+  // Small sculpted white canine teeth (tucked inside lips, visible during bark/yawn/pant)
+  const toothGeo = new THREE.ConeGeometry(hs * 0.030, hs * 0.082, 6);
   toothGeo.rotateX(Math.PI);
   disposables.geometries.push(toothGeo);
   for (const s of [-1, 1]) {
     const upperCanine = new THREE.Mesh(toothGeo, toothMat);
-    upperCanine.position.set(s * hs * breed.muzzleWidth * 0.44, snoutTipY - hs * 0.145, snoutTipZ - ml * 0.26);
+    upperCanine.position.set(s * upperMw * 0.52, snoutTipY - upperMh * 0.48, snoutTipZ - ml * 0.26);
     head.add(upperCanine);
   }
 
   // Curved Pink Tongue
   const tongue = new THREE.Group();
   tongue.name = 'tongue';
-  tongue.position.set(0, hs * 0.06, hs * 0.34 + ml * 0.26);
+  tongue.position.set(0, upperMh * 0.16, hs * 0.30 + ml * 0.26);
   jaw.add(tongue);
 
-  const tongueLen = ml * 0.74 + hs * 0.18;
-  const tongueW = hs * breed.muzzleWidth * 0.44;
-  const tongueGeo = new THREE.BoxGeometry(tongueW, hs * 0.055, tongueLen, 4, 2, 8);
+  const tongueLen = ml * 0.74 + hs * 0.16;
+  const tongueW = upperMw * 0.56;
+  const tongueGeo = new THREE.BoxGeometry(tongueW, hs * 0.048, tongueLen, 4, 2, 8);
   tongueGeo.translate(0, 0, tongueLen * 0.48);
   const tPos = tongueGeo.getAttribute('position');
   for (let i = 0; i < tPos.count; i++) {
@@ -1543,13 +1719,12 @@ export function buildDog(breedInput) {
     let ty = tPos.getY(i);
     let tz = tPos.getZ(i);
     const u = THREE.MathUtils.clamp(tz / tongueLen, 0, 1);
-    // Round the tongue tip and curve gently downward near tip + central groove
     const roundW = Math.sqrt(Math.max(0.05, 1.0 - Math.pow(Math.max(0, (u - 0.65) / 0.35), 2)));
     tx *= roundW;
     ty *= (1.0 - 0.35 * u);
-    const groove = Math.exp(-Math.pow(tx / (tongueW * 0.22), 2)) * hs * 0.025 * (1.0 - u * 0.5);
+    const groove = Math.exp(-Math.pow(tx / (tongueW * 0.22), 2)) * hs * 0.022 * (1.0 - u * 0.5);
     ty -= groove;
-    ty -= u * u * hs * 0.14; // soft downward curl at tip
+    ty -= u * u * hs * 0.12;
     tPos.setXYZ(i, tx, ty, tz);
   }
   tongueGeo.computeVertexNormals();
@@ -1557,11 +1732,11 @@ export function buildDog(breedInput) {
   tongue.add(tongueMesh);
   disposables.geometries.push(tongueGeo);
 
-  // Eyes & Eyelids (placed flush in sculpted orbital sockets; rim stays fixed to skull while eyeball tracks)
+  // Expressive Wet Eyes with Crisp Black Eyeliner (visible from front and side views)
   const leftEye = buildEyeAssembly(breed, 1, irisMat, corneaMat, eyeRimMat, eyelidMat, disposables);
   const leftSocket = new THREE.Group();
   leftSocket.position.set(eyeX, eyeY, eyeZ);
-  leftSocket.rotation.y = 0.24; // Subtle natural outward canine eye angle
+  leftSocket.rotation.y = 0.34;
   leftSocket.add(leftEye.rimMesh, leftEye.eyePivot, leftEye.eyelidPivot);
   leftEye.eyelidPivot.name = 'eyelidL';
   head.add(leftSocket);
@@ -1569,7 +1744,7 @@ export function buildDog(breedInput) {
   const rightEye = buildEyeAssembly(breed, -1, irisMat, corneaMat, eyeRimMat, eyelidMat, disposables);
   const rightSocket = new THREE.Group();
   rightSocket.position.set(-eyeX, eyeY, eyeZ);
-  rightSocket.rotation.y = -0.24;
+  rightSocket.rotation.y = -0.34;
   rightSocket.add(rightEye.rimMesh, rightEye.eyePivot, rightEye.eyelidPivot);
   rightEye.eyelidPivot.name = 'eyelidR';
   head.add(rightSocket);
@@ -1580,12 +1755,12 @@ export function buildDog(breedInput) {
 
   // Ears
   const earSet = breed.earSet;
-  const earX = hs * (breed.earType === 'erect' ? 0.58 : 0.78);
-  const earY = hs * (0.36 + earSet * 0.46);
-  const earZ = -hs * (breed.earType === 'erect' ? 0.14 : 0.06);
+  const earX = hs * (breed.earType === 'erect' ? 0.46 : 0.64);
+  const earY = hs * (0.34 + earSet * 0.36);
+  const earZ = -hs * (breed.earType === 'erect' ? 0.10 : 0.04);
 
   const earBaseRot = breed.earType === 'erect'
-    ? { x: 0.14, y: 0.20, z: -0.24 }  // Left ear leans gently outward (-Z roll) & slightly forward
+    ? { x: 0.18, y: 0.20, z: -0.22 }
     : breed.earType === 'fold'
       ? { x: 0.08, y: 0.14, z: 0.06 }
       : { x: 0.04, y: 0.06, z: 0.04 };
@@ -1612,18 +1787,19 @@ export function buildDog(breedInput) {
 
   // ==========================================================================
   // 4 Sculpted Canine Legs (FL, FR, BL, BR)
+  // Muscular broad upper arm & thigh tapering to slender wrist/metatarsus + plump paws!
+  // coatXOffset: 0, coatXSpan: side -> cc.x = -1 on inner leg, +1 on outer leg!
   // ==========================================================================
-  const legFeather = breed.feathering * 0.85;
-  const shoulderOffX = halfW * 0.82;
+  const legFeather = breed.feathering * 0.72;
+  const shoulderOffX = halfW * 0.78;
   const shoulderOffY = shoulderY - chestCenterY;
-  const shoulderOffZ = B * 0.07;
+  const shoulderOffZ = B * 0.02;
 
-  const hipOffX = halfW * 0.78;
+  const hipOffX = halfW * 0.76;
   const hipOffY = hipY - pelvisY;
-  const hipOffZ = -B * 0.03;
+  const hipOffZ = -B * 0.02;
 
   function buildFrontLeg(side, label) {
-    // side: +1 = FL, -1 = FR
     const shoulder = new THREE.Group();
     shoulder.name = `shoulder_${label}`;
     shoulder.position.set(side * shoulderOffX, shoulderOffY, shoulderOffZ);
@@ -1638,14 +1814,14 @@ export function buildDog(breedInput) {
     const uQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(frontUpperX, 0, 0));
     const upperBodyFn = (local, out) => out.copy(local).applyQuaternion(uQuat).add(sWorld);
 
-    // Muscular shoulder blade / upper arm (humerus) overlapping chest seamlessly
+    // Broad muscular upper arm / shoulder (humerus + deltoid) blending smoothly into ribcage
     const upperGeo = createOrganicLoft([
-      { pos: [-side * legR * 0.25, legR * 0.90, -legR * 0.10], rx: legR * 1.15, ry: legR * 1.55, axis: 'y', furScale: 1.0, coatZ: 0.62, coatYCenter: 0.60, coatXOffset: side * 0.65, coatXSpan: 0.14, coatZone: 3 },
-      { pos: [0, 0.0, 0.0], rx: legR * 1.38, ry: legR * 1.72, axis: 'y', furScale: 1.02, coatZ: 0.64, coatYCenter: 0.50, coatXOffset: side * 0.68, coatXSpan: 0.16, coatZone: 3, backFeather: legFeather * 0.55 },
-      { pos: [0, -frontUpperLen * 0.55, 0.0], rx: legR * 1.12, ry: legR * 1.30, axis: 'y', furScale: 0.92, coatZ: 0.62, coatYCenter: 0.38, coatXOffset: side * 0.65, coatXSpan: 0.14, coatZone: 3, backFeather: legFeather * 0.75 },
-      { pos: [0, -frontUpperLen * 1.04, 0.0], rx: legR * 0.90, ry: legR * 1.02, axis: 'y', furScale: 0.85, coatZ: 0.60, coatYCenter: 0.30, coatXOffset: side * 0.62, coatXSpan: 0.12, coatZone: 3, backFeather: legFeather * 0.85 },
-    ], 14, upperBodyFn);
-    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 16, disposables);
+      { pos: [-side * legR * 0.30, legR * 1.15, -legR * 0.12], rx: legR * 1.38, ry: legR * 1.95, axis: 'y', furScale: 1.00, coatZ: 0.62, coatYCenter: 0.60, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      { pos: [-side * legR * 0.08, 0.0, 0.0], rx: legR * 1.62, ry: legR * 2.15, axis: 'y', furScale: 1.02, coatZ: 0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.45 },
+      { pos: [0, -frontUpperLen * 0.55, 0.0], rx: legR * 1.34, ry: legR * 1.62, axis: 'y', furScale: 0.92, coatZ: 0.62, coatYCenter: 0.40, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.68 },
+      { pos: [0, -frontUpperLen * 1.05, 0.0], rx: legR * 1.10, ry: legR * 1.24, axis: 'y', furScale: 0.84, coatZ: 0.60, coatYCenter: 0.32, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.80 },
+    ], 16, upperBodyFn);
+    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 18, disposables);
 
     const lower = new THREE.Group();
     lower.name = `lower_${label}`;
@@ -1657,32 +1833,33 @@ export function buildDog(breedInput) {
     const lQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(frontUpperX + frontLowerX, 0, 0));
     const lowerBodyFn = (local, out) => out.copy(local).applyQuaternion(lQuat).add(elbowWorld);
 
-    // Sculpted forearm (radius/ulna) tapering down to wrist/pastern
+    // Muscular forearm tapering clearly down to slender wrist & pastern
     const lowerGeo = createOrganicLoft([
-      { pos: [0, legR * 0.35, 0], rx: legR * 0.94, ry: legR * 1.04, axis: 'y', furScale: 0.85, coatZ: 0.60, coatYCenter: 0.30, coatXOffset: side * 0.62, coatXSpan: 0.12, coatZone: 3, backFeather: legFeather },
-      { pos: [0, -frontLowerLen * 0.32, 0], rx: legR * 0.82, ry: legR * 0.88, axis: 'y', furScale: 0.76, coatZ: 0.60, coatYCenter: 0.22, coatXOffset: side * 0.60, coatXSpan: 0.10, coatZone: 3, backFeather: legFeather * 0.95 },
-      { pos: [0, -frontLowerLen * 0.72, legR * 0.06], rx: legR * 0.70, ry: legR * 0.72, axis: 'y', furScale: 0.56 + breed.curl * 0.45, coatZ: 0.61, coatYCenter: 0.14, coatXOffset: side * 0.58, coatXSpan: 0.08, coatZone: 3, backFeather: legFeather * 0.45 },
-      { pos: [0, -frontLowerLen * 1.02, legR * 0.18], rx: legR * 0.74, ry: legR * 0.78, axis: 'y', furScale: 0.40 + breed.curl * 0.40, coatZ: 0.62, coatYCenter: 0.08, coatXOffset: side * 0.56, coatXSpan: 0.08, coatZone: 3 },
-    ], 12, lowerBodyFn);
-    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 14, disposables);
+      { pos: [0, legR * 0.35, 0], rx: legR * 1.08, ry: legR * 1.18, axis: 'y', furScale: 0.84, coatZ: 0.60, coatYCenter: 0.32, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.90 },
+      { pos: [0, -frontLowerLen * 0.34, 0], rx: legR * 0.90, ry: legR * 0.96, axis: 'y', furScale: 0.72, coatZ: 0.60, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.85 },
+      // Slender wrist (carpus)
+      { pos: [0, -frontLowerLen * 0.74, legR * 0.05], rx: legR * 0.66, ry: legR * 0.68, axis: 'y', furScale: 0.46 + breed.curl * 0.42, coatZ: 0.61, coatYCenter: 0.14, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.35 },
+      // Slender pastern meeting plump paw
+      { pos: [0, -frontLowerLen * 1.02, legR * 0.15], rx: legR * 0.64, ry: legR * 0.68, axis: 'y', furScale: 0.34 + breed.curl * 0.36, coatZ: 0.62, coatYCenter: 0.08, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+    ], 14, lowerBodyFn);
+    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 16, disposables);
 
     const paw = new THREE.Group();
     paw.name = `paw_${label}`;
-    paw.position.set(0, -frontLowerLen, legR * 0.16);
+    paw.position.set(0, -frontLowerLen, legR * 0.15);
     paw.rotation.x = frontPawX;
     lower.add(paw);
 
-    const pawWorld = new THREE.Vector3(0, -frontLowerLen, legR * 0.16).applyQuaternion(lQuat).add(elbowWorld);
+    const pawWorld = new THREE.Vector3(0, -frontLowerLen, legR * 0.15).applyQuaternion(lQuat).add(elbowWorld);
     const pawBodyFn = (local, out) => out.copy(local).add(pawWorld);
-    const pawGeo = buildPawGeometry(legR, pawH, true, side * 0.56, pawBodyFn);
-    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 12, disposables);
+    const pawGeo = buildPawGeometry(legR, pawH, true, side, pawBodyFn);
+    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 14, disposables);
     addPawPads(paw, legR, pawH, true, padMat, disposables);
 
     return { shoulder, upper, lower, paw };
   }
 
   function buildBackLeg(side, label) {
-    // side: +1 = BL, -1 = BR
     const hip = new THREE.Group();
     hip.name = `hip_${label}`;
     hip.position.set(side * hipOffX, hipOffY, hipOffZ);
@@ -1697,14 +1874,14 @@ export function buildDog(breedInput) {
     const uQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(backUpperX, 0, 0));
     const upperBodyFn = (local, out) => out.copy(local).applyQuaternion(uQuat).add(hWorld);
 
-    // Broad muscular canine thigh / haunch (wider front-to-back!)
+    // Broad powerful muscular thigh / haunch tapering strongly down to stifle
     const upperGeo = createOrganicLoft([
-      { pos: [-side * legR * 0.22, legR * 1.0, -legR * 0.15], rx: legR * 1.20, ry: legR * 1.85, axis: 'y', furScale: 1.05, coatZ: -0.62, coatYCenter: 0.62, coatXOffset: side * 0.65, coatXSpan: 0.16, coatZone: 3 },
-      { pos: [0, 0.0, -legR * 0.20], rx: legR * 1.48, ry: legR * 2.15, axis: 'y', furScale: 1.08, coatZ: -0.64, coatYCenter: 0.50, coatXOffset: side * 0.68, coatXSpan: 0.18, coatZone: 3, backFeather: legFeather * 0.85 },
-      { pos: [0, -backUpperLen * 0.55, -legR * 0.16], rx: legR * 1.18, ry: legR * 1.56, axis: 'y', furScale: 0.96, coatZ: -0.58, coatYCenter: 0.38, coatXOffset: side * 0.64, coatXSpan: 0.14, coatZone: 3, backFeather: legFeather * 0.90 },
-      { pos: [0, -backUpperLen * 1.04, 0.0], rx: legR * 0.92, ry: legR * 1.08, axis: 'y', furScale: 0.86, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: side * 0.60, coatXSpan: 0.12, coatZone: 3, backFeather: legFeather * 0.70 },
-    ], 14, upperBodyFn);
-    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 16, disposables);
+      { pos: [-side * legR * 0.28, legR * 1.15, -legR * 0.16], rx: legR * 1.48, ry: legR * 2.35, axis: 'y', furScale: 1.04, coatZ: -0.62, coatYCenter: 0.62, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      { pos: [-side * legR * 0.06, 0.0, -legR * 0.22], rx: legR * 1.72, ry: legR * 2.62, axis: 'y', furScale: 1.06, coatZ: -0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.72 },
+      { pos: [0, -backUpperLen * 0.55, -legR * 0.16], rx: legR * 1.42, ry: legR * 1.88, axis: 'y', furScale: 0.94, coatZ: -0.58, coatYCenter: 0.38, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.78 },
+      { pos: [0, -backUpperLen * 1.05, 0.0], rx: legR * 1.12, ry: legR * 1.32, axis: 'y', furScale: 0.84, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.62 },
+    ], 16, upperBodyFn);
+    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 18, disposables);
 
     const lower = new THREE.Group();
     lower.name = `lower_${label}`;
@@ -1716,18 +1893,18 @@ export function buildDog(breedInput) {
     const lQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(backUpperX + backLowerX, 0, 0));
     const lowerBodyFn = (local, out) => out.copy(local).applyQuaternion(lQuat).add(stifleWorld);
 
-    // Sculpted tibia + prominent canine hock (tarsus) + vertical metatarsus!
-    const hockJut = -legR * 1.15; // Backward hock silhouette!
+    // Muscular gaskin -> distinct canine hock (tarsus) -> slender vertical metatarsus
+    const hockJut = -legR * 1.12;
     const lowerGeo = createOrganicLoft([
-      { pos: [0, legR * 0.36, 0], rx: legR * 0.92, ry: legR * 1.10, axis: 'y', furScale: 0.86, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: side * 0.60, coatXSpan: 0.12, coatZone: 3, backFeather: legFeather * 0.80 },
-      { pos: [0, -backLowerLen * 0.36, hockJut * 0.82], rx: legR * 0.76, ry: legR * 0.94, axis: 'y', furScale: 0.74, coatZ: -0.58, coatYCenter: 0.22, coatXOffset: side * 0.58, coatXSpan: 0.10, coatZone: 3, backFeather: legFeather * 0.65 },
-      // Hock joint (tarsus point)
-      { pos: [0, -backLowerLen * 0.52, hockJut], rx: legR * 0.68, ry: legR * 0.82, axis: 'y', furScale: 0.62, coatZ: -0.62, coatYCenter: 0.18, coatXOffset: side * 0.56, coatXSpan: 0.08, coatZone: 3, backFeather: legFeather * 0.35 },
-      // Metatarsus curving cleanly forward down to paw
-      { pos: [0, -backLowerLen * 0.82, hockJut * 0.45], rx: legR * 0.64, ry: legR * 0.68, axis: 'y', furScale: 0.48 + breed.curl * 0.40, coatZ: -0.58, coatYCenter: 0.12, coatXOffset: side * 0.55, coatXSpan: 0.08, coatZone: 3 },
-      { pos: [0, -backLowerLen * 1.02, 0.0], rx: legR * 0.70, ry: legR * 0.74, axis: 'y', furScale: 0.38 + breed.curl * 0.35, coatZ: -0.55, coatYCenter: 0.07, coatXOffset: side * 0.54, coatXSpan: 0.08, coatZone: 3 },
-    ], 12, lowerBodyFn);
-    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 14, disposables);
+      { pos: [0, legR * 0.36, 0], rx: legR * 1.10, ry: legR * 1.32, axis: 'y', furScale: 0.84, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.70 },
+      { pos: [0, -backLowerLen * 0.36, hockJut * 0.82], rx: legR * 0.86, ry: legR * 1.06, axis: 'y', furScale: 0.72, coatZ: -0.58, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.55 },
+      // Hock joint (tarsus)
+      { pos: [0, -backLowerLen * 0.54, hockJut], rx: legR * 0.72, ry: legR * 0.88, axis: 'y', furScale: 0.58, coatZ: -0.62, coatYCenter: 0.18, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.30 },
+      // Slender metatarsus down to paw
+      { pos: [0, -backLowerLen * 0.82, hockJut * 0.42], rx: legR * 0.60, ry: legR * 0.64, axis: 'y', furScale: 0.42 + breed.curl * 0.38, coatZ: -0.58, coatYCenter: 0.12, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      { pos: [0, -backLowerLen * 1.02, 0.0], rx: legR * 0.62, ry: legR * 0.66, axis: 'y', furScale: 0.32 + breed.curl * 0.32, coatZ: -0.55, coatYCenter: 0.07, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+    ], 14, lowerBodyFn);
+    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 16, disposables);
 
     const paw = new THREE.Group();
     paw.name = `paw_${label}`;
@@ -1737,8 +1914,8 @@ export function buildDog(breedInput) {
 
     const pawWorld = new THREE.Vector3(0, -backLowerLen, 0).applyQuaternion(lQuat).add(stifleWorld);
     const pawBodyFn = (local, out) => out.copy(local).add(pawWorld);
-    const pawGeo = buildPawGeometry(legR, pawH, false, side * 0.54, pawBodyFn);
-    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 12, disposables);
+    const pawGeo = buildPawGeometry(legR, pawH, false, side, pawBodyFn);
+    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 14, disposables);
     addPawPads(paw, legR, pawH, false, padMat, disposables);
 
     return { hip, upper, lower, paw };
@@ -1757,28 +1934,26 @@ export function buildDog(breedInput) {
   const tRad = breed.tailRadius;
   const tFluff = breed.tailFluff;
 
-  // Natural neutral tail carriage per breed type (+X rotation curls tail UP over back)
   let tailBaseX = 0.25;
   let tailSegX = 0.10;
   if (breed.tailType === 'curled') {
-    tailBaseX = 0.85;
+    tailBaseX = 0.88;
     tailSegX = 0.54 * breed.tailCurl;
   } else if (breed.tailType === 'plume') {
-    tailBaseX = breed.id === 'husky' ? 0.52 : (breed.id === 'poodle' ? 0.95 : -0.18);
-    tailSegX = breed.id === 'husky' ? 0.26 : (breed.id === 'poodle' ? 0.12 : 0.16);
+    tailBaseX = breed.id === 'husky' ? 0.52 : (breed.id === 'poodle' ? 0.95 : -0.14);
+    tailSegX = breed.id === 'husky' ? 0.26 : (breed.id === 'poodle' ? 0.12 : 0.14);
   } else if (breed.tailType === 'short') {
     tailBaseX = 0.35;
     tailSegX = 0.08;
   } else {
-    // 'straight' (Labrador otter tail, Beagle upright hound tail, Dachshund sleek)
-    tailBaseX = breed.id === 'beagle' ? 0.88 : (breed.id === 'labrador' ? -0.12 : 0.10);
+    tailBaseX = breed.id === 'beagle' ? 0.88 : (breed.id === 'labrador' ? -0.10 : 0.10);
     tailSegX = breed.id === 'beagle' ? 0.08 : 0.06;
   }
 
   const tailJoints = [];
   let tailParent = pelvis;
-  const tailRootPos = new THREE.Vector3(0, halfD * 0.26, -B * 0.19);
-  const plumeFeather = breed.tailType === 'plume' ? breed.feathering * 0.95 : (breed.tailType === 'curled' ? 0.45 : 0.0);
+  const tailRootPos = new THREE.Vector3(0, pelvisHalfD * 0.42, -B * 0.16);
+  const plumeFeather = breed.tailType === 'plume' ? breed.feathering * 0.72 : (breed.tailType === 'curled' ? 0.32 : 0.0);
 
   for (let i = 0; i < 5; i++) {
     const tj = new THREE.Group();
@@ -1796,23 +1971,23 @@ export function buildDog(breedInput) {
 
     const u0 = i / 5;
     const u1 = (i + 1) / 5;
-    const r0 = tRad * (1.12 - u0 * 0.55) * (breed.id === 'poodle' && i >= 3 ? 1.35 : 1.0);
-    const r1 = tRad * (1.12 - u1 * 0.65) * (breed.id === 'poodle' && i >= 3 ? 1.30 : 1.0);
-    const segFur0 = THREE.MathUtils.lerp(0.9, tFluff, Math.sin(Math.min(1, u0 + 0.15) * Math.PI * 0.85));
-    const segFur1 = THREE.MathUtils.lerp(0.9, tFluff, Math.sin(Math.min(1, u1 + 0.10) * Math.PI * 0.85));
+    const r0 = tRad * (1.14 - u0 * 0.52) * (breed.id === 'poodle' && i >= 3 ? 1.32 : 1.0);
+    const r1 = tRad * (1.14 - u1 * 0.62) * (breed.id === 'poodle' && i >= 3 ? 1.28 : 1.0);
+    const segFur0 = THREE.MathUtils.lerp(0.88, tFluff, Math.sin(Math.min(1, u0 + 0.15) * Math.PI * 0.85));
+    const segFur1 = THREE.MathUtils.lerp(0.88, tFluff, Math.sin(Math.min(1, u1 + 0.10) * Math.PI * 0.85));
 
     const segBodyFn = (local, out) => {
       out.set(local.x, pelvisY + tailRootPos.y + local.y, neutralPelvisPos.z + tailRootPos.z - i * segLen + local.z);
     };
 
     const segSections = [
-      { pos: [0, 0, segLen * 0.22], rx: r0 * 0.96, ry: r0 * 0.96, furScale: segFur0, coatZ: -0.25 - u0 * 0.72, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.28, coatZone: 4, combDir: [0, -0.30, -0.94], bottomFeather: plumeFeather },
-      { pos: [0, 0, -segLen * 0.45], rx: (r0 + r1) * 0.52, ry: (r0 + r1) * 0.52, furScale: (segFur0 + segFur1) * 0.52, coatZ: -0.25 - (u0 + u1) * 0.36, coatYCenter: 0.56, coatYSpan: 0.24, coatXSpan: 0.24, coatZone: 4, combDir: [0, -0.35, -0.92], bottomFeather: plumeFeather * 1.15 },
-      { pos: [0, 0, -segLen * (i === 4 ? 1.08 : 1.14)], rx: i === 4 ? r1 * 0.22 : r1 * 0.92, ry: i === 4 ? r1 * 0.22 : r1 * 0.92, furScale: i === 4 ? segFur1 * 0.85 : segFur1, coatZ: -0.25 - u1 * 0.75, coatYCenter: 0.54, coatYSpan: 0.20, coatXSpan: 0.18, coatZone: 4, combDir: [0, -0.30, -0.94], bottomFeather: plumeFeather * (i === 4 ? 0.6 : 1.1) },
+      { pos: [0, 0, segLen * 0.22], rx: r0 * 0.96, ry: r0 * 0.96, furScale: segFur0, coatZ: -0.25 - u0 * 0.72, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.28, coatZone: 4, combDir: [0, -0.35, -0.92], bottomFeather: plumeFeather },
+      { pos: [0, 0, -segLen * 0.45], rx: (r0 + r1) * 0.52, ry: (r0 + r1) * 0.52, furScale: (segFur0 + segFur1) * 0.52, coatZ: -0.25 - (u0 + u1) * 0.36, coatYCenter: 0.56, coatYSpan: 0.24, coatXSpan: 0.24, coatZone: 4, combDir: [0, -0.40, -0.90], bottomFeather: plumeFeather * 1.05 },
+      { pos: [0, 0, -segLen * (i === 4 ? 1.08 : 1.14)], rx: i === 4 ? r1 * 0.24 : r1 * 0.92, ry: i === 4 ? r1 * 0.24 : r1 * 0.92, furScale: i === 4 ? segFur1 * 0.78 : segFur1, coatZ: -0.25 - u1 * 0.75, coatYCenter: 0.54, coatYSpan: 0.20, coatXSpan: 0.18, coatZone: 4, combDir: [0, -0.35, -0.92], bottomFeather: plumeFeather * (i === 4 ? 0.55 : 0.95) },
     ];
 
-    const segGeo = createOrganicLoft(segSections, 12, segBodyFn);
-    addFurredPart(tj, segGeo, baseCoatMat, shellFurMat, 14, disposables);
+    const segGeo = createOrganicLoft(segSections, 14, segBodyFn);
+    addFurredPart(tj, segGeo, baseCoatMat, shellFurMat, 16, disposables);
   }
 
   // ==========================================================================
@@ -1896,8 +2071,8 @@ export function buildDog(breedInput) {
   function setFurWetness(w) {
     const v = THREE.MathUtils.clamp(Number(w) || 0, 0, 1);
     furUniforms.uWetness.value = v;
-    noseMat.clearcoatRoughness = THREE.MathUtils.lerp(0.14, 0.05, v);
-    padMat.roughness = THREE.MathUtils.lerp(0.82, 0.36, v);
+    noseMat.clearcoatRoughness = THREE.MathUtils.lerp(0.06, 0.02, v);
+    padMat.roughness = THREE.MathUtils.lerp(0.78, 0.34, v);
   }
 
   function setSnowOnFur(s) {
