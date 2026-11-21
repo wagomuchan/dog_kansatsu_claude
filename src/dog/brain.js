@@ -129,7 +129,14 @@ function readClock(clock) {
   };
 }
 
-function isWalkable(garden, x, z, margin = 0.55) {
+function computeBodyMargin(breed) {
+  const bodyLen = (typeof breed?.bodyLength === 'number' && Number.isFinite(breed.bodyLength))
+    ? breed.bodyLength
+    : ((typeof breed?.body?.length === 'number' && Number.isFinite(breed.body.length)) ? breed.body.length : 0.5);
+  return clamp(bodyLen * 0.5 + 0.15, 0.28, 0.65);
+}
+
+function isWalkable(garden, x, z, margin = 0.5) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
   if (Math.abs(x) > 14.6 || Math.abs(z) > 14.6) return false;
   if (garden && typeof garden.isInside === 'function') {
@@ -165,33 +172,52 @@ function getPoi(garden, key) {
   return { x, z, rotY, raw };
 }
 
-function randomWalkable(garden, fallbackX = 0, fallbackZ = 2) {
+function randomWalkable(garden, fallbackX = 0, fallbackZ = 2, margin = 0.5) {
+  const m = Math.max(0.35, margin || 0.5);
   if (garden && typeof garden.randomWalkablePoint === 'function') {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const pt = garden.randomWalkablePoint();
-      if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.z) && isWalkable(garden, pt.x, pt.z, 0.55)) {
+      if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.z) && isWalkable(garden, pt.x, pt.z, m)) {
         return { x: pt.x, z: pt.z };
       }
     }
   }
-  for (let i = 0; i < 30; i++) {
-    const x = randRange(-12, 12);
-    const z = randRange(-12, 12);
-    if (isWalkable(garden, x, z, 0.6)) return { x, z };
+  for (let i = 0; i < 36; i++) {
+    const x = randRange(-12.5, 12.5);
+    const z = randRange(-9.5, 12.5);
+    if (isWalkable(garden, x, z, m)) return { x, z };
   }
-  return { x: fallbackX, z: fallbackZ };
+  if (isWalkable(garden, fallbackX, fallbackZ, m)) return { x: fallbackX, z: fallbackZ };
+  return { x: 0, z: 2 };
 }
 
-function findSafePointNear(garden, x, z, minR = 0.0, maxR = 2.5, margin = 0.5) {
-  if (minR <= 0.01 && isWalkable(garden, x, z, margin)) return { x, z };
-  for (let attempt = 0; attempt < 24; attempt++) {
-    const a = (attempt / 24) * TWO_PI + randRange(-0.2, 0.2);
-    const r = lerp(minR, maxR, (attempt % 4) / 3);
-    const nx = x + Math.sin(a) * r;
-    const nz = z + Math.cos(a) * r;
-    if (isWalkable(garden, nx, nz, margin)) return { x: nx, z: nz };
+function findSafePointNear(garden, x, z, minR = 0.0, maxR = 2.6, margin = 0.5) {
+  const m = Math.max(0.28, margin || 0.5);
+  if (minR <= 0.01 && isWalkable(garden, x, z, m)) return { x, z };
+  const startR = Math.max(minR, 0.25);
+  const endR = Math.max(maxR, startR + 1.0);
+  const rings = 5;
+  const angles = 16;
+  for (let ring = 0; ring <= rings; ring++) {
+    const r = lerp(startR, endR, ring / rings);
+    const phase = (ring % 2) * (Math.PI / angles);
+    for (let i = 0; i < angles; i++) {
+      const a = (i / angles) * TWO_PI + phase;
+      const nx = x + Math.sin(a) * r;
+      const nz = z + Math.cos(a) * r;
+      if (isWalkable(garden, nx, nz, m)) return { x: nx, z: nz };
+    }
   }
-  return randomWalkable(garden, x, z);
+  // Wider fallback search if obstacle is large (e.g. pond or flowerbed)
+  for (let r = endR + 0.6; r <= endR + 3.2; r += 0.65) {
+    for (let i = 0; i < angles; i++) {
+      const a = (i / angles) * TWO_PI;
+      const nx = x + Math.sin(a) * r;
+      const nz = z + Math.cos(a) * r;
+      if (isWalkable(garden, nx, nz, m)) return { x: nx, z: nz };
+    }
+  }
+  return randomWalkable(garden, x, z, m);
 }
 
 function getObjectWorldPos(obj, out = _tmpVec) {
@@ -297,7 +323,8 @@ function computeTemperature(clk, garden) {
   return clamp(seasonalBase + diurnal + weatherMod + snowMod, 0, 1);
 }
 
-function findShadeSpot(garden, clk) {
+function findShadeSpot(garden, clk, margin = 0.5) {
+  const m = Math.max(0.4, margin || 0.5);
   const tree = getPoi(garden, 'tree');
   if (tree) {
     // Opposite sun horizontal direction
@@ -308,19 +335,20 @@ function findShadeSpot(garden, clk) {
         const a = Math.atan2(-sunDirX, -sunDirZ) + offset;
         const sx = tree.x + Math.sin(a) * dist;
         const sz = tree.z + Math.cos(a) * dist;
-        if (isWalkable(garden, sx, sz, 0.6)) return { x: sx, z: sz };
+        if (isWalkable(garden, sx, sz, m + 0.05)) return { x: sx, z: sz };
       }
     }
-    return findSafePointNear(garden, tree.x, tree.z, 1.8, 3.4, 0.55);
+    return findSafePointNear(garden, tree.x, tree.z, 0, 3.4, m);
   }
   const porch = getPoi(garden, 'porch');
-  if (porch) return findSafePointNear(garden, porch.x, porch.z, 0, 1.2, 0.45);
-  return randomWalkable(garden);
+  if (porch) return findSafePointNear(garden, porch.x, porch.z, 0, 1.2, m);
+  return randomWalkable(garden, 0, 2, m);
 }
 
-function nudgeBallIfPossible(garden, fromX, fromZ) {
+function nudgeBallIfPossible(garden, fromX, fromZ, margin = 0.5) {
   const toyPoi = getPoi(garden, 'toy');
   if (!toyPoi) return;
+  const ballMargin = Math.max(0.85, (margin || 0.5) + 0.35);
   const dx = toyPoi.x - fromX;
   const dz = toyPoi.z - fromZ;
   const d = Math.hypot(dx, dz) || 1;
@@ -330,7 +358,7 @@ function nudgeBallIfPossible(garden, fromX, fromZ) {
   for (const mult of [1.0, 0.7, 0.45]) {
     const nx = toyPoi.x + Math.sin(baseA) * pushDist * mult;
     const nz = toyPoi.z + Math.cos(baseA) * pushDist * mult;
-    if (isWalkable(garden, nx, nz, 0.9)) {
+    if (isWalkable(garden, nx, nz, ballMargin)) {
       try {
         if (typeof toyPoi.raw.x === 'number') toyPoi.raw.x = nx;
         if (typeof toyPoi.raw.z === 'number') toyPoi.raw.z = nz;
@@ -348,15 +376,51 @@ function nudgeBallIfPossible(garden, fromX, fromZ) {
   }
 }
 
-function hasLineOfSight(garden, ax, az, bx, bz, margin = 0.52) {
+function hasLineOfSight(garden, ax, az, bx, bz, margin = 0.5) {
   const d = dist2D(ax, az, bx, bz);
-  if (d < 0.35) return true;
-  const steps = Math.min(28, Math.max(2, Math.ceil(d / 0.55)));
-  for (let i = 1; i < steps; i++) {
+  if (d < 0.28) return true;
+  const steps = Math.min(64, Math.max(2, Math.ceil(d / 0.32)));
+  for (let i = 1; i <= steps; i++) {
     const t = i / steps;
     if (!isWalkable(garden, lerp(ax, bx, t), lerp(az, bz, t), margin)) return false;
   }
   return true;
+}
+
+function firstBlockedPoint(garden, ax, az, bx, bz, margin = 0.5) {
+  const d = dist2D(ax, az, bx, bz);
+  if (d < 0.28) return null;
+  const steps = Math.min(64, Math.max(2, Math.ceil(d / 0.32)));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const px = lerp(ax, bx, t);
+    const pz = lerp(az, bz, t);
+    if (!isWalkable(garden, px, pz, margin)) {
+      return { x: px, z: pz, t };
+    }
+  }
+  return null;
+}
+
+function probeRayClearance(garden, x, z, angle, distances, margin) {
+  const sx = Math.sin(angle);
+  const sz = Math.cos(angle);
+  let clearCount = 0;
+  let firstBlockedDist = Infinity;
+  for (let i = 0; i < distances.length; i++) {
+    const d = distances[i];
+    if (isWalkable(garden, x + sx * d, z + sz * d, margin)) {
+      clearCount++;
+    } else {
+      firstBlockedDist = d;
+      break;
+    }
+  }
+  return {
+    clear: clearCount === distances.length,
+    clearCount,
+    firstBlockedDist,
+  };
 }
 
 class NavigationHelper {
@@ -366,6 +430,7 @@ class NavigationHelper {
     this.stuckTimer = 0;
     this.lastProgressX = 0;
     this.lastProgressZ = 0;
+    this.avoidSide = 1;
   }
 
   reset(x, z) {
@@ -376,125 +441,268 @@ class NavigationHelper {
     this.lastProgressZ = z;
   }
 
-  computeSteering(garden, dogX, dogZ, dogHeading, goalX, goalZ, desiredSpeed, realDt, allowInterior = false) {
-    const distToGoal = dist2D(dogX, dogZ, goalX, goalZ);
-    if (distToGoal < 0.05) {
-      return { heading: dogHeading, speed: 0, stuck: false, distToGoal };
-    }
+  flipAvoidSide() {
+    this.avoidSide = -this.avoidSide;
+    this.detour = null;
+    this.detourTimer = 0;
+  }
 
+  computeSteering(
+    garden,
+    dogX,
+    dogZ,
+    dogHeading,
+    goalX,
+    goalZ,
+    desiredSpeed,
+    realDt,
+    allowInterior = false,
+    bodyMargin = 0.45,
+    wasBlocked = false
+  ) {
     if (allowInterior) {
+      const distToGoal = dist2D(dogX, dogZ, goalX, goalZ);
+      if (distToGoal < 0.05) {
+        return { heading: dogHeading, speed: 0, stuck: false, distToGoal, goalX, goalZ, avoiding: false };
+      }
       const directHeading = Math.atan2(goalX - dogX, goalZ - dogZ);
       const speed = distToGoal < 0.7 ? desiredSpeed * clamp(distToGoal / 0.7, 0.35, 1) : desiredSpeed;
-      return { heading: directHeading, speed, stuck: false, distToGoal };
+      return { heading: directHeading, speed, stuck: false, distToGoal, goalX, goalZ, avoiding: false };
     }
 
-    const margin = 0.52;
+    const margin = Math.max(0.28, bodyMargin || 0.45);
+    const steerMargin = margin + 0.05;
+
+    // 1. If the destination itself is inside an obstacle, snap it to the nearest walkable point
+    if (!isWalkable(garden, goalX, goalZ, margin)) {
+      const fixed = findSafePointNear(garden, goalX, goalZ, 0, 3.8, margin);
+      goalX = fixed.x;
+      goalZ = fixed.z;
+    }
+
+    const distToGoal = dist2D(dogX, dogZ, goalX, goalZ);
+    if (distToGoal < 0.05) {
+      return { heading: dogHeading, speed: 0, stuck: false, distToGoal, goalX, goalZ, avoiding: false };
+    }
+
     this.detourTimer = Math.max(0, this.detourTimer - realDt);
 
-    // Stuck detection
+    // 2. Stuck detection (counts faster when final-defense collision blocked movement)
     const moved = dist2D(dogX, dogZ, this.lastProgressX, this.lastProgressZ);
-    if (moved > 0.28) {
+    if (moved > 0.26 && !wasBlocked) {
       this.lastProgressX = dogX;
       this.lastProgressZ = dogZ;
       this.stuckTimer = 0;
-    } else if (desiredSpeed > 0.25) {
-      this.stuckTimer += realDt;
+    } else if (desiredSpeed > 0.2) {
+      this.stuckTimer += realDt * (wasBlocked ? 1.5 : 1.0);
     }
 
-    // Clear detour if reached or direct path opened
+    // 3. Validate or clear existing detour waypoint
     if (this.detour) {
       const dd = dist2D(dogX, dogZ, this.detour.x, this.detour.z);
-      if (dd < 0.65 || (this.detourTimer <= 0 && hasLineOfSight(garden, dogX, dogZ, goalX, goalZ, margin))) {
+      const detourInvalid = !isWalkable(garden, this.detour.x, this.detour.z, margin);
+      if (
+        detourInvalid ||
+        dd < Math.max(0.6, margin + 0.18) ||
+        (this.detourTimer <= 0 && hasLineOfSight(garden, dogX, dogZ, goalX, goalZ, steerMargin))
+      ) {
         this.detour = null;
       }
     }
 
-    // Plan a detour waypoint if direct line of sight is blocked
-    if (!this.detour && distToGoal > 1.0 && !hasLineOfSight(garden, dogX, dogZ, goalX, goalZ, margin)) {
-      this.detour = this._findDetour(garden, dogX, dogZ, goalX, goalZ, margin);
-      this.detourTimer = 2.4;
+    // 4. Create detour waypoint around left/right of obstacle if path is blocked
+    if (!this.detour && distToGoal > 0.85 && !hasLineOfSight(garden, dogX, dogZ, goalX, goalZ, steerMargin)) {
+      this.detour = this._findDetour(garden, dogX, dogZ, goalX, goalZ, steerMargin, false);
+      this.detourTimer = 2.6;
     }
 
-    // Replan wider detour if stuck
-    if (this.stuckTimer > 1.8 && this.stuckTimer < 3.8) {
-      this.detour = this._findDetour(garden, dogX, dogZ, goalX, goalZ, margin, true);
-      this.detourTimer = 2.8;
+    // Replan wider detour if blocked or stuck
+    if ((wasBlocked || this.stuckTimer > 1.1) && this.stuckTimer < 2.9) {
+      if (wasBlocked || this.detourTimer <= 1.2) {
+        if (wasBlocked && this.stuckTimer > 0.75) {
+          this.avoidSide = -this.avoidSide;
+        }
+        const wider = this._findDetour(garden, dogX, dogZ, goalX, goalZ, steerMargin, true);
+        if (wider) {
+          this.detour = wider;
+          this.detourTimer = 2.4;
+        }
+      }
     }
 
     const activeX = this.detour ? this.detour.x : goalX;
     const activeZ = this.detour ? this.detour.z : goalZ;
+    const distToActive = dist2D(dogX, dogZ, activeX, activeZ);
     let targetAngle = Math.atan2(activeX - dogX, activeZ - dogZ);
+    let avoiding = false;
 
-    // Local feeler steering for smooth curve around nearby obstacles
-    const lookAhead = clamp(0.85 + desiredSpeed * 0.25, 0.9, 2.2);
-    const probeX = dogX + Math.sin(targetAngle) * lookAhead;
-    const probeZ = dogZ + Math.cos(targetAngle) * lookAhead;
-    if (!isWalkable(garden, probeX, probeZ, margin)) {
+    // 5. Multi-point forward path check (0.3m .. 1.5m+, clipped to active target distance so POIs near walls remain reachable)
+    const rawProbes = desiredSpeed > 2.4
+      ? [0.3, 0.6, 0.9, 1.2, 1.5, 1.9, 2.3]
+      : [0.3, 0.6, 0.9, 1.2, 1.5];
+    const maxProbe = this.detour ? rawProbes[rawProbes.length - 1] : Math.max(0.35, distToActive);
+    const forwardProbes = [];
+    for (let i = 0; i < rawProbes.length; i++) {
+      if (rawProbes[i] <= maxProbe) forwardProbes.push(rawProbes[i]);
+    }
+    if (forwardProbes.length === 0) forwardProbes.push(Math.min(0.35, distToActive));
+
+    const centerProbe = probeRayClearance(garden, dogX, dogZ, targetAngle, forwardProbes, steerMargin);
+
+    // Side whiskers prevent grazing corners of trees, rocks, lanterns, and fences
+    const whiskerProbes = [];
+    if (maxProbe >= 0.4) whiskerProbes.push(0.4);
+    if (maxProbe >= 0.85) whiskerProbes.push(0.85);
+    const leftWhisker = whiskerProbes.length > 0
+      ? probeRayClearance(garden, dogX, dogZ, targetAngle + 0.24, whiskerProbes, margin)
+      : { clear: true };
+    const rightWhisker = whiskerProbes.length > 0
+      ? probeRayClearance(garden, dogX, dogZ, targetAngle - 0.24, whiskerProbes, margin)
+      : { clear: true };
+
+    if (!centerProbe.clear || !leftWhisker.clear || !rightWhisker.clear || wasBlocked) {
+      avoiding = true;
+      const steerProbes = [0.3, 0.6, 0.9, 1.2, 1.5];
+      const angleOffsets = [0.28, 0.52, 0.78, 1.05, 1.35, 1.65, 2.0, 2.4, Math.PI];
+      const sides = [this.avoidSide, -this.avoidSide];
+
       let bestAngle = targetAngle;
-      let foundClear = false;
-      const offsets = [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.55, -1.55, 2.1, -2.1];
-      for (let i = 0; i < offsets.length; i++) {
-        const cand = targetAngle + offsets[i];
-        const px = dogX + Math.sin(cand) * lookAhead;
-        const pz = dogZ + Math.cos(cand) * lookAhead;
-        const midX = dogX + Math.sin(cand) * (lookAhead * 0.5);
-        const midZ = dogZ + Math.cos(cand) * (lookAhead * 0.5);
-        if (isWalkable(garden, px, pz, margin) && isWalkable(garden, midX, midZ, margin * 0.85)) {
-          bestAngle = cand;
-          foundClear = true;
-          break;
+      let bestScore = -Infinity;
+      let bestSide = this.avoidSide;
+
+      for (let i = 0; i < angleOffsets.length; i++) {
+        const off = angleOffsets[i];
+        for (let s = 0; s < sides.length; s++) {
+          const side = sides[s];
+          const cand = wrapAngle(targetAngle + side * off);
+          let res = probeRayClearance(garden, dogX, dogZ, cand, steerProbes, steerMargin);
+          if (!res.clear && res.clearCount < 2) {
+            res = probeRayClearance(garden, dogX, dogZ, cand, steerProbes, margin);
+          }
+          if (res.clearCount === 0) continue;
+
+          const clearBonus = res.clear ? 4.0 : 0;
+          const sideBonus = side === this.avoidSide ? 0.35 : 0;
+          const headingAlign = -Math.abs(wrapAngle(cand - dogHeading)) * 0.25;
+          const score = res.clearCount * 1.4 + clearBonus - off * 0.95 + sideBonus + headingAlign;
+          if (score > bestScore) {
+            bestScore = score;
+            bestAngle = cand;
+            bestSide = side;
+          }
         }
+        if (bestScore > 9.5) break;
       }
-      if (foundClear) targetAngle = bestAngle;
+
+      targetAngle = bestAngle;
+      this.avoidSide = bestSide;
     }
 
-    // Arrival deceleration
+    // 6. Arrival deceleration & obstacle proximity speed control
     let speed = desiredSpeed;
     const slowRadius = clamp(0.8 + desiredSpeed * 0.35, 0.8, 2.6);
     if (!this.detour && distToGoal < slowRadius) {
       speed = desiredSpeed * clamp(distToGoal / slowRadius, 0.22, 1.0);
     }
 
+    if (avoiding) {
+      const nearFactor = centerProbe.firstBlockedDist < 0.75 ? 0.55 : 0.78;
+      speed = Math.min(speed, Math.max(0.85, desiredSpeed * nearFactor));
+    }
+
+    // Check immediate clearance along the dog's ACTUAL current heading so turning doesn't clip an obstacle
+    const headingProbe = probeRayClearance(garden, dogX, dogZ, dogHeading, [0.3, 0.6, 0.9], margin);
+    if (!headingProbe.clear) {
+      const factor = headingProbe.firstBlockedDist <= 0.35 ? 0.15 : (headingProbe.firstBlockedDist <= 0.65 ? 0.35 : 0.65);
+      speed *= factor;
+      avoiding = true;
+    }
+
     // Slow down when making sharp turns
     const turnErr = Math.abs(wrapAngle(targetAngle - dogHeading));
-    if (turnErr > 1.2) {
-      speed *= clamp(1.0 - (turnErr - 1.2) * 0.45, 0.28, 1.0);
+    if (turnErr > 0.9) {
+      speed *= clamp(1.0 - (turnErr - 0.9) * 0.42, 0.22, 1.0);
     }
 
     return {
       heading: wrapAngle(targetAngle),
       speed,
-      stuck: this.stuckTimer > 3.6,
+      stuck: this.stuckTimer > 2.8,
       distToGoal,
+      goalX,
+      goalZ,
+      avoiding,
     };
   }
 
   _findDetour(garden, ax, az, gx, gz, margin, wide = false) {
-    const baseAngle = Math.atan2(gx - ax, gz - az);
-    const angles = wide
-      ? [0.6, -0.6, 1.05, -1.05, 1.5, -1.5, 2.0, -2.0, 2.5, -2.5]
-      : [0.45, -0.45, 0.85, -0.85, 1.25, -1.25, 1.7, -1.7];
-    const radii = wide ? [3.2, 5.2, 2.0] : [2.2, 3.8, 5.4];
-    let best = null;
-    let bestScore = Infinity;
+    const dx = gx - ax;
+    const dz = gz - az;
+    const totalD = Math.hypot(dx, dz) || 1;
+    const dirX = dx / totalD;
+    const dirZ = dz / totalD;
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    const baseAngle = Math.atan2(dx, dz);
 
+    const candidates = [];
+
+    // A. Points around the left & right sides of the first blocking obstacle
+    const blocked = firstBlockedPoint(garden, ax, az, gx, gz, margin);
+    if (blocked) {
+      const sideOffsets = wide ? [1.6, 2.6, 3.8, 5.2, 6.6] : [1.4, 2.3, 3.4, 4.6];
+      const fwdOffsets = [0.0, 0.9, -0.5];
+      for (let f = 0; f < fwdOffsets.length; f++) {
+        const fo = fwdOffsets[f];
+        for (let s = 0; s < sideOffsets.length; s++) {
+          const so = sideOffsets[s];
+          candidates.push(
+            { x: blocked.x + dirX * fo + perpX * so, z: blocked.z + dirZ * fo + perpZ * so, side: 1 },
+            { x: blocked.x + dirX * fo - perpX * so, z: blocked.z + dirZ * fo - perpZ * so, side: -1 },
+          );
+        }
+      }
+    }
+
+    // B. Radial fan candidates from the dog's current position
+    const angles = wide
+      ? [0.55, -0.55, 0.95, -0.95, 1.4, -1.4, 1.85, -1.85, 2.35, -2.35]
+      : [0.45, -0.45, 0.85, -0.85, 1.25, -1.25, 1.7, -1.7];
+    const radii = wide ? [2.2, 3.6, 5.4, 6.8] : [2.0, 3.5, 5.2];
     for (let r = 0; r < radii.length; r++) {
       const dist = radii[r];
       for (let i = 0; i < angles.length; i++) {
         const ang = baseAngle + angles[i];
-        const cx = ax + Math.sin(ang) * dist;
-        const cz = az + Math.cos(ang) * dist;
-        if (!isWalkable(garden, cx, cz, margin + 0.08)) continue;
-        if (!hasLineOfSight(garden, ax, az, cx, cz, margin * 0.9)) continue;
-        const rem = dist2D(cx, cz, gx, gz);
-        const clearToGoal = hasLineOfSight(garden, cx, cz, gx, gz, margin) ? -2.2 : 0;
-        const score = rem + dist * 0.35 + clearToGoal;
-        if (score < bestScore) {
-          bestScore = score;
-          best = { x: cx, z: cz };
-        }
+        candidates.push({
+          x: ax + Math.sin(ang) * dist,
+          z: az + Math.cos(ang) * dist,
+          side: angles[i] >= 0 ? 1 : -1,
+        });
       }
     }
+
+    let best = null;
+    let bestScore = Infinity;
+    let bestSide = this.avoidSide;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (!isWalkable(garden, c.x, c.z, margin + 0.06)) continue;
+      if (!hasLineOfSight(garden, ax, az, c.x, c.z, margin * 0.95)) continue;
+      const distFromDog = dist2D(ax, az, c.x, c.z);
+      if (distFromDog < 0.75) continue;
+      const rem = dist2D(c.x, c.z, gx, gz);
+      const clearToGoal = hasLineOfSight(garden, c.x, c.z, gx, gz, margin) ? -2.8 : 0;
+      const sideBias = c.side === this.avoidSide ? -0.45 : 0;
+      const score = rem + distFromDog * 0.38 + clearToGoal + sideBias;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x: c.x, z: c.z };
+        bestSide = c.side;
+      }
+    }
+
+    if (best) this.avoidSide = bestSide;
     return best;
   }
 }
@@ -503,6 +711,7 @@ export class DogBrain {
   constructor(breed) {
     this.breed = breed;
     this.profile = extractBreedProfile(breed);
+    this._bodyMargin = computeBodyMargin(breed);
 
     // 8 core needs (0..1)
     this.needs = {
@@ -571,11 +780,20 @@ export class DogBrain {
     this._lastEars = 'relaxed';
     this._lastLookAt = null;
     this._pantSoundTimer = 0;
+
+    // Timed tail expression state (prevents constant wagging)
+    this._tailBurstMode = null;       // 'happyWag' | 'wag' | null
+    this._tailBurstTimer = 0;
+    this._tailAfterMode = 'relaxed';
+    this._tailAfterTimer = 0;
+    this._tailStepKey = '';
+    this._planSerial = 0;
   }
 
   setBreed(breed) {
     this.breed = breed;
     this.profile = extractBreedProfile(breed);
+    this._bodyMargin = computeBodyMargin(breed);
   }
 
   update(worldDt, ctx = {}) {
@@ -606,6 +824,13 @@ export class DogBrain {
     this._resetEffects();
 
     const env = this._senseEnvironment(clk, garden, dogPos, dogState, cameraPos, realDt);
+
+    // Auto-clear insideDoghouse flag if dog is actually out in the yard
+    if (this._insideDoghouse && env.doghouseInside) {
+      if (dist2D(dogPos.x, dogPos.z, env.doghouseInside.x, env.doghouseInside.z) > 2.2) {
+        this._insideDoghouse = false;
+      }
+    }
 
     // One-time clock-aware startup calibration
     if (!this._initialized) {
@@ -641,7 +866,7 @@ export class DogBrain {
     }
 
     // Execute current multi-step action
-    this._executeCurrentStep(realDt, env, dogPos, dogHeading, animator, emitEvent);
+    this._executeCurrentStep(realDt, env, dogPos, dogHeading, animator, emitEvent, Boolean(dogState.blocked));
 
     // Panting overlay when hot or after heavy exercise
     this._updatePanting(realDt, env, dogState, emitEvent);
@@ -1169,6 +1394,7 @@ export class DogBrain {
       });
     }
 
+    this._planSerial++;
     this._currentPlan = { id, steps };
     this._stepIndex = 0;
     this._stepElapsed = 0;
@@ -1219,48 +1445,64 @@ export class DogBrain {
 
   _buildActionSteps(id, env, dogPos, dogHeading) {
     const g = env.garden;
+    const m = this._bodyMargin;
     const sp = this.profile.speedScale;
     const walk = 1.25 * sp;
     const trot = 2.9 * sp;
     const gallop = 5.4 * sp;
 
+    const resolvePoiSpot = (poi, fallbackMinR = 0.35, fallbackMaxR = 0.95) => {
+      if (typeof poi.rotY === 'number' && isWalkable(g, poi.x, poi.z, m)) {
+        return {
+          x: poi.x,
+          z: poi.z,
+          heading: poi.rotY,
+          lookPos: { x: poi.x + Math.sin(poi.rotY) * 0.55, y: 0.14, z: poi.z + Math.cos(poi.rotY) * 0.55 },
+        };
+      }
+      const pt = findSafePointNear(g, poi.x, poi.z, fallbackMinR, fallbackMaxR, m);
+      return {
+        x: pt.x,
+        z: pt.z,
+        heading: Math.atan2(poi.x - pt.x, poi.z - pt.z),
+        lookPos: { x: poi.x, y: 0.14, z: poi.z },
+      };
+    };
+
     switch (id) {
       case 'eat': {
         const bowl = getPoi(g, 'foodBowl');
         if (!bowl) return this._buildActionSteps('wander', env, dogPos, dogHeading);
-        const standPt = findSafePointNear(g, bowl.x, bowl.z, 0.35, 0.75, 0.35);
-        const faceBowl = Math.atan2(bowl.x - standPt.x, bowl.z - standPt.z);
+        const spot = resolvePoiSpot(bowl, 0.35, 0.85);
         return [
-          { kind: 'move', x: standPt.x, z: standPt.z, speed: trot * 0.85, arriveDist: 0.32, label: 'ごはん皿へ向かっている', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: randRange(1.5, 2.2), heading: faceBowl, lookPos: { x: bowl.x, y: 0.15, z: bowl.z }, label: 'ごはんの匂いを嗅いでいる', tail: 'wag', ears: 'alert' },
-          { kind: 'eat', duration: randRange(5.0, 8.0), heading: faceBowl, bowlPos: bowl, label: 'ごはんをもぐもぐ食べている', tail: 'wag', ears: 'relaxed' },
-          { kind: 'lipLick', duration: 2.0, heading: faceBowl, label: '口のまわりをぺろぺろ', tail: 'happyWag', ears: 'relaxed' },
-          { kind: 'yawn', pose: 'sit', duration: 2.3, label: 'ごはんを食べて満足そう', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: trot * 0.85, arriveDist: 0.35, label: 'ごはん皿へ向かっている', tail: 'relaxed', tailBurst: { dur: 2.8, after: 'wag', afterDur: 2.4 }, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: randRange(1.5, 2.2), heading: spot.heading, lookPos: spot.lookPos, label: 'ごはんの匂いを嗅いでいる', tail: 'relaxed', ears: 'alert' },
+          { kind: 'eat', duration: randRange(5.0, 8.0), heading: spot.heading, bowlPos: spot.lookPos, label: 'ごはんをもぐもぐ食べている', tail: 'relaxed', tailBurst: { dur: 2.2, after: 'wag', afterDur: 2.4 }, ears: 'relaxed' },
+          { kind: 'lipLick', duration: 2.0, heading: spot.heading, label: '口のまわりをぺろぺろ', tail: 'relaxed', tailWag: 1.4, ears: 'relaxed' },
+          { kind: 'yawn', pose: 'sit', duration: 2.3, label: 'ごはんを食べて満足そう', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'checkEmptyBowl': {
         const bowl = getPoi(g, 'foodBowl');
         if (!bowl) return this._buildActionSteps('sitWatch', env, dogPos, dogHeading);
-        const standPt = findSafePointNear(g, bowl.x, bowl.z, 0.35, 0.75, 0.35);
-        const faceBowl = Math.atan2(bowl.x - standPt.x, bowl.z - standPt.z);
+        const spot = resolvePoiSpot(bowl, 0.35, 0.85);
         return [
-          { kind: 'move', x: standPt.x, z: standPt.z, speed: walk, arriveDist: 0.35, label: 'ごはん皿を見に行っている', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 2.4, heading: faceBowl, lookPos: { x: bowl.x, y: 0.12, z: bowl.z }, label: 'ごはん皿が空っぽ…', tail: 'down', ears: 'back' },
-          { kind: 'lookObserver', pose: 'sit', duration: 3.4, whine: true, label: 'ごはんまだかな…', tail: 'down', ears: 'back' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.35, label: 'ごはん皿を見に行っている', tail: 'relaxed', tailWag: 2.0, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 2.4, heading: spot.heading, lookPos: spot.lookPos, label: 'ごはん皿が空っぽ…', tail: 'down', clearTailBurst: true, ears: 'back' },
+          { kind: 'lookObserver', pose: 'sit', duration: 3.4, whine: true, label: 'ごはんまだかな…', tail: 'down', clearTailBurst: true, ears: 'back' },
         ];
       }
 
       case 'drink': {
         const bowl = getPoi(g, 'waterBowl');
         if (!bowl) return this._buildActionSteps('wander', env, dogPos, dogHeading);
-        const standPt = findSafePointNear(g, bowl.x, bowl.z, 0.35, 0.72, 0.35);
-        const faceBowl = Math.atan2(bowl.x - standPt.x, bowl.z - standPt.z);
+        const spot = resolvePoiSpot(bowl, 0.35, 0.82);
         return [
-          { kind: 'move', x: standPt.x, z: standPt.z, speed: walk * 1.1, arriveDist: 0.32, label: 'お水を飲みに行っている', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sniffGround', duration: 0.9, heading: faceBowl, lookPos: { x: bowl.x, y: 0.12, z: bowl.z }, label: 'お水を確かめている', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'drink', duration: randRange(4.0, 6.2), heading: faceBowl, bowlPos: bowl, label: 'お水をぴちゃぴちゃ飲んでいる', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'lipLick', duration: 1.6, heading: faceBowl, label: 'お水を飲んでひと息', tail: 'wag', ears: 'relaxed' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.1, arriveDist: 0.35, label: 'お水を飲みに行っている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sniffGround', duration: 0.9, heading: spot.heading, lookPos: spot.lookPos, label: 'お水を確かめている', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'drink', duration: randRange(4.0, 6.2), heading: spot.heading, bowlPos: spot.lookPos, label: 'お水をぴちゃぴちゃ飲んでいる', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'lipLick', duration: 1.6, heading: spot.heading, label: 'お水を飲んでひと息', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
@@ -1270,7 +1512,7 @@ export class DogBrain {
         let refX = dogPos.x;
         let refZ = dogPos.z;
         for (let i = 0; i < count; i++) {
-          const pt = randomWalkable(g, refX, refZ);
+          const pt = randomWalkable(g, refX, refZ, m);
           refX = pt.x; refZ = pt.z;
           steps.push({
             kind: 'move',
@@ -1279,7 +1521,8 @@ export class DogBrain {
             speed: walk * randRange(0.88, 1.18),
             arriveDist: 0.6,
             label: i % 2 === 0 ? '庭をのんびり散歩中' : 'あちこち散策中',
-            tail: 'wag',
+            tail: 'relaxed',
+            clearTailBurst: true,
             ears: 'relaxed',
           });
           if (Math.random() < 0.65) {
@@ -1289,7 +1532,8 @@ export class DogBrain {
               duration: randRange(1.5, 3.0),
               scanAround: true,
               label: '気になる場所をクンクン',
-              tail: 'wag',
+              tail: 'relaxed',
+              clearTailBurst: true,
               ears: 'alert',
             });
           }
@@ -1308,8 +1552,8 @@ export class DogBrain {
           const len = randRange(1.6, 3.2);
           let nx = curX + Math.sin(dir) * len;
           let nz = curZ + Math.cos(dir) * len;
-          if (!isWalkable(g, nx, nz, 0.6)) {
-            const alt = randomWalkable(g, curX, curZ);
+          if (!isWalkable(g, nx, nz, m + 0.05)) {
+            const alt = randomWalkable(g, curX, curZ, m);
             nx = alt.x; nz = alt.z;
             dir = Math.atan2(nx - curX, nz - curZ);
           }
@@ -1322,7 +1566,8 @@ export class DogBrain {
             poseDuringMove: 'sniffGround',
             arriveDist: 0.45,
             label: '気になる匂いを辿っている',
-            tail: 'wag',
+            tail: 'relaxed',
+            clearTailBurst: true,
             ears: 'relaxed',
           });
           steps.push({
@@ -1330,7 +1575,8 @@ export class DogBrain {
             pose: 'sniffGround',
             duration: randRange(1.2, 2.2),
             label: '地面をクンクン嗅いでいる',
-            tail: 'wag',
+            tail: 'relaxed',
+            clearTailBurst: true,
             ears: 'alert',
           });
         }
@@ -1341,6 +1587,7 @@ export class DogBrain {
           scanAround: true,
           label: '匂いの先を見回している',
           tail: 'relaxed',
+          clearTailBurst: true,
           ears: 'alert',
           onComplete: () => { this.needs.curiosity = clamp(this.needs.curiosity - 0.32, 0, 1); },
         });
@@ -1348,27 +1595,27 @@ export class DogBrain {
       }
 
       case 'dig': {
-        const anchor = (Math.random() < 0.5 && getPoi(g, 'tree')) || (Math.random() < 0.5 && getPoi(g, 'flowerbed')) || randomWalkable(g);
-        const spot = findSafePointNear(g, anchor.x, anchor.z, 1.2, 3.0, 0.6);
+        const anchor = (Math.random() < 0.5 && getPoi(g, 'tree')) || (Math.random() < 0.5 && getPoi(g, 'flowerbed')) || randomWalkable(g, dogPos.x, dogPos.z, m);
+        const spot = findSafePointNear(g, anchor.x, anchor.z, 1.2, 3.0, m + 0.06);
         return [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.15, arriveDist: 0.45, label: '掘る場所を探している', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: randRange(1.8, 2.6), label: '地面の匂いを念入りに嗅いでいる', tail: 'wag', ears: 'alert' },
-          { kind: 'dig', duration: randRange(3.2, 5.2), label: '夢中で地面を掘っている', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 1.8, label: '掘った穴を確認中', tail: 'wag', ears: 'alert' },
-          ...(Math.random() < 0.55 ? [{ kind: 'dig', duration: randRange(2.0, 3.2), label: 'もう少し掘ってみる！', tail: 'happyWag', ears: 'alert' }] : []),
-          { kind: 'pounce', duration: 1.0, label: '掘って大満足！', tail: 'happyWag', ears: 'alert' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.15, arriveDist: 0.48, label: '掘る場所を探している', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: randRange(1.8, 2.6), label: '地面の匂いを念入りに嗅いでいる', tail: 'relaxed', ears: 'alert' },
+          { kind: 'dig', duration: randRange(3.2, 5.2), label: '夢中で地面を掘っている', tail: 'relaxed', tailBurst: { dur: 2.4, after: 'wag', afterDur: 2.0 }, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 1.8, label: '掘った穴を確認中', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          ...(Math.random() < 0.55 ? [{ kind: 'dig', duration: randRange(2.0, 3.2), label: 'もう少し掘ってみる！', tail: 'relaxed', tailWag: 2.0, ears: 'alert' }] : []),
+          { kind: 'pounce', duration: 1.0, label: '掘って大満足！', tail: 'relaxed', tailWag: 1.2, ears: 'alert' },
         ];
       }
 
       case 'playToy': {
         const toy = getPoi(g, 'toy');
         if (!toy) return this._buildActionSteps('zoomies', env, dogPos, dogHeading);
-        const approach = findSafePointNear(g, toy.x, toy.z, 0.55, 1.1, 0.5);
+        const approach = findSafePointNear(g, toy.x, toy.z, 0.5, 1.2, m);
         const steps = [
-          { kind: 'move', x: approach.x, z: approach.z, speed: trot, arriveDist: 0.55, label: 'ボールを見つけた！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'play_bow', duration: 1.5, lookPoi: 'toy', barkOnce: Math.random() < 0.45 + this.profile.vocal * 0.35, label: 'ボールに遊ぼうポーズ', tail: 'happyWag', ears: 'alert' },
-          { kind: 'playBall', rounds: Math.floor(randRange(2, 4)), label: 'ボールで一人遊び中', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 1.5, lookPoi: 'toy', label: 'ボール遊びでご機嫌', tail: 'happyWag', ears: 'relaxed' },
+          { kind: 'move', x: approach.x, z: approach.z, speed: trot, arriveDist: 0.55, label: 'ボールを見つけた！', tail: 'relaxed', tailBurst: { dur: 2.8, after: 'wag', afterDur: 2.5 }, ears: 'alert' },
+          { kind: 'pose', pose: 'play_bow', duration: 1.5, lookPoi: 'toy', barkOnce: Math.random() < 0.45 + this.profile.vocal * 0.35, label: 'ボールに遊ぼうポーズ', tail: 'relaxed', tailBurst: { dur: 2.4, after: 'wag', afterDur: 2.4 }, ears: 'alert' },
+          { kind: 'playBall', rounds: Math.floor(randRange(2, 4)), label: 'ボールで一人遊び中', tail: 'relaxed', ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 1.5, lookPoi: 'toy', label: 'ボール遊びでご機嫌', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
         return steps;
       }
@@ -1376,14 +1623,14 @@ export class DogBrain {
       case 'zoomies': {
         const laps = Math.floor(randRange(4, 6.5));
         const steps = [
-          { kind: 'pose', pose: 'play_bow', duration: 0.95, barkOnce: Math.random() < 0.55, label: 'スイッチが入った！', tail: 'happyWag', ears: 'back' },
+          { kind: 'pose', pose: 'play_bow', duration: 0.95, barkOnce: Math.random() < 0.55, label: 'スイッチが入った！', tail: 'relaxed', tailBurst: { dur: 3.0, after: 'wag', afterDur: 3.0 }, ears: 'back' },
         ];
         let prevX = dogPos.x;
         let prevZ = dogPos.z;
         for (let i = 0; i < laps; i++) {
-          let pt = randomWalkable(g);
+          let pt = randomWalkable(g, prevX, prevZ, m + 0.08);
           for (let tries = 0; tries < 5; tries++) {
-            const cand = randomWalkable(g);
+            const cand = randomWalkable(g, prevX, prevZ, m + 0.08);
             if (dist2D(prevX, prevZ, cand.x, cand.z) > 5.5) { pt = cand; break; }
           }
           prevX = pt.x; prevZ = pt.z;
@@ -1394,13 +1641,13 @@ export class DogBrain {
             speed: gallop * randRange(0.92, 1.08),
             arriveDist: 1.1,
             label: '庭を全力ダッシュ！（ズーミー）',
-            tail: 'happyWag',
+            tail: 'relaxed',
             ears: 'back',
           });
         }
         steps.push(
-          { kind: 'jump', duration: 0.9, label: 'ぴょんと飛び跳ねた！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 2.6, label: '走り回ってハアハアしている', tail: 'happyWag', ears: 'relaxed' },
+          { kind: 'jump', duration: 0.9, label: 'ぴょんと飛び跳ねた！', tail: 'relaxed', tailWag: 1.4, ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 2.6, label: '走り回ってハアハアしている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         );
         return steps;
       }
@@ -1409,10 +1656,10 @@ export class DogBrain {
         if (env.butterflies.length === 0) return this._buildActionSteps('wander', env, dogPos, dogHeading);
         const target = env.butterflies[0].obj;
         return [
-          { kind: 'pose', pose: 'stand', duration: 0.85, trackObj: target, headTilt: 0.25, label: '蝶々を発見！', tail: 'wag', ears: 'alert' },
-          { kind: 'chase', trackObj: target, speed: trot * 1.35, duration: randRange(6.5, 11.5), jumpClose: true, label: '蝶々を追いかけている', tail: 'happyWag', ears: 'alert' },
-          { kind: 'jump', duration: 0.95, trackObj: target, label: '蝶々にジャンプ！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 2.0, trackObj: target, headTilt: -0.22, label: '蝶々を見送っている', tail: 'wag', ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 0.85, trackObj: target, headTilt: 0.25, label: '蝶々を発見！', tail: 'relaxed', tailBurst: { dur: 2.6, after: 'wag', afterDur: 2.6 }, ears: 'alert' },
+          { kind: 'chase', trackObj: target, speed: trot * 1.35, duration: randRange(6.5, 11.5), jumpClose: true, label: '蝶々を追いかけている', tail: 'relaxed', ears: 'alert' },
+          { kind: 'jump', duration: 0.95, trackObj: target, label: '蝶々にジャンプ！', tail: 'relaxed', tailWag: 1.5, ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 2.0, trackObj: target, headTilt: -0.22, label: '蝶々を見送っている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
       }
 
@@ -1420,11 +1667,11 @@ export class DogBrain {
         if (env.birds.length === 0) return this._buildActionSteps('followScent', env, dogPos, dogHeading);
         const target = env.birds[0].obj;
         return [
-          { kind: 'pose', pose: 'stand', duration: 1.6, trackObj: target, label: '小鳥を見つけた…', tail: 'down', ears: 'alert' },
-          { kind: 'chase', trackObj: target, speed: walk * 0.45, duration: randRange(3.5, 5.5), stopDist: 2.2, label: '小鳥にそっと忍び寄っている', tail: 'down', ears: 'alert' },
-          { kind: 'pose', pose: 'play_bow', duration: 0.85, trackObj: target, label: 'じっと狙いを定めている…', tail: 'down', ears: 'alert' },
-          { kind: 'pounce', duration: 1.0, trackObj: target, label: '小鳥に飛びかかった！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 2.2, lookSky: true, headTilt: 0.28, label: '小鳥を見上げている', tail: 'wag', ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 1.6, trackObj: target, label: '小鳥を見つけた…', tail: 'relaxed', tailAlert: true, clearTailBurst: true, ears: 'alert' },
+          { kind: 'chase', trackObj: target, speed: walk * 0.45, duration: randRange(3.5, 5.5), stopDist: 2.2, label: '小鳥にそっと忍び寄っている', tail: 'relaxed', tailAlert: true, clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'lie', duration: 1.0, trackObj: target, label: 'じっと狙いを定めている…', tail: 'relaxed', tailAlert: true, clearTailBurst: true, ears: 'alert' },
+          { kind: 'pounce', duration: 1.0, trackObj: target, label: '小鳥に飛びかかった！', tail: 'relaxed', tailWag: 1.2, ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 2.2, lookSky: true, headTilt: 0.28, label: '小鳥を見上げている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
       }
 
@@ -1432,9 +1679,9 @@ export class DogBrain {
         if (env.birds.length === 0) return this._buildActionSteps('barkPlayful', env, dogPos, dogHeading);
         const target = env.birds[0].obj;
         return [
-          { kind: 'chase', trackObj: target, speed: trot, duration: 2.6, stopDist: 3.0, label: '小鳥を見つけて駆け寄る', tail: 'wag', ears: 'alert' },
-          { kind: 'bark', count: Math.floor(randRange(2, 4)), trackObj: target, label: '小鳥に向かってワンワン！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 2.2, trackObj: target, label: '小鳥をじっと警戒中', tail: 'wag', ears: 'alert' },
+          { kind: 'chase', trackObj: target, speed: trot, duration: 2.6, stopDist: 3.0, label: '小鳥を見つけて駆け寄る', tail: 'relaxed', tailBurst: { dur: 2.2, after: 'wag', afterDur: 2.0 }, ears: 'alert' },
+          { kind: 'bark', count: Math.floor(randRange(2, 4)), trackObj: target, label: '小鳥に向かってワンワン！', tail: 'relaxed', ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 2.2, trackObj: target, label: '小鳥をじっと警戒中', tail: 'relaxed', tailAlert: true, clearTailBurst: true, ears: 'alert' },
         ];
       }
 
@@ -1444,10 +1691,12 @@ export class DogBrain {
           : (env.clk.season === 'winter' ? '舞う雪を追いかけている' : '舞う落ち葉を追いかけている');
         const bursts = Math.floor(randRange(2, 4));
         const steps = [
-          { kind: 'pose', pose: 'stand', duration: 0.8, lookSky: true, headTilt: 0.22, label: 'ひらひら舞うものを発見！', tail: 'wag', ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 0.8, lookSky: true, headTilt: 0.22, label: 'ひらひら舞うものを発見！', tail: 'relaxed', tailBurst: { dur: 2.6, after: 'wag', afterDur: 2.4 }, ears: 'alert' },
         ];
         const windAngle = randRange(0, TWO_PI);
-        let anchor = env.fallingSample || findSafePointNear(g, dogPos.x + randRange(-3, 3), dogPos.z + randRange(-3, 3), 1.5, 4.2, 0.6);
+        let anchor = (env.fallingSample && isWalkable(g, env.fallingSample.x, env.fallingSample.z, m))
+          ? env.fallingSample
+          : findSafePointNear(g, dogPos.x + randRange(-3, 3), dogPos.z + randRange(-3, 3), 1.5, 4.2, m);
         for (let i = 0; i < bursts; i++) {
           const target = i === 0
             ? anchor
@@ -1455,15 +1704,15 @@ export class DogBrain {
                 g,
                 anchor.x + Math.sin(windAngle + randRange(-0.5, 0.5)) * randRange(1.8, 3.6),
                 anchor.z + Math.cos(windAngle + randRange(-0.5, 0.5)) * randRange(1.8, 3.6),
-                0.5, 2.5, 0.6
+                0.5, 2.5, m
               );
           anchor = target;
           steps.push(
-            { kind: 'move', x: target.x, z: target.z, speed: trot * 1.2, arriveDist: 0.8, label: sLabel, tail: 'happyWag', ears: 'alert' },
-            { kind: i % 2 === 0 ? 'jump' : 'pounce', duration: 0.9, label: sLabel, tail: 'happyWag', ears: 'alert' },
+            { kind: 'move', x: target.x, z: target.z, speed: trot * 1.2, arriveDist: 0.8, label: sLabel, tail: 'relaxed', ears: 'alert' },
+            { kind: i % 2 === 0 ? 'jump' : 'pounce', duration: 0.9, label: sLabel, tail: 'relaxed', tailWag: 1.2, ears: 'alert' },
           );
         }
-        steps.push({ kind: 'pose', pose: 'sniffGround', duration: 1.6, label: '落ちた場所をクンクン', tail: 'wag', ears: 'relaxed' });
+        steps.push({ kind: 'pose', pose: 'sniffGround', duration: 1.6, label: '落ちた場所をクンクン', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' });
         return steps;
       }
 
@@ -1471,66 +1720,67 @@ export class DogBrain {
         const entrance = env.doghouse;
         const inside = env.doghouseInside;
         if (!entrance || !inside) return this._buildActionSteps('lieIdle', env, dogPos, dogHeading);
+        const safeEntrance = findSafePointNear(g, entrance.x, entrance.z, 0, 1.2, m);
         const faceOut = inside.rotY ?? entrance.rotY ?? 0;
         const sleepDuration = env.isDeepNight ? randRange(50, 90) : randRange(24, 42);
         const steps = [];
         if (!this._insideDoghouse) {
           steps.push(
-            { kind: 'move', x: entrance.x, z: entrance.z, speed: walk * 0.9, arriveDist: 0.45, label: '犬小屋へ向かっている', tail: 'relaxed', ears: 'relaxed' },
+            { kind: 'move', x: safeEntrance.x, z: safeEntrance.z, speed: walk * 0.9, arriveDist: 0.45, label: '犬小屋へ向かっている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
             {
               kind: 'move', x: inside.x, z: inside.z, speed: walk * 0.68, interior: true, arriveDist: 0.22,
-              label: '犬小屋の中に入っている', tail: 'relaxed', ears: 'relaxed',
+              label: '犬小屋の中に入っている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed',
               onComplete: () => { this._insideDoghouse = true; this.inShelter = true; },
             },
           );
         }
         steps.push(
-          { kind: 'circle', turns: randRange(1.8, 2.6), radius: 0.16, interior: true, finalHeading: faceOut, label: 'くるくる回って寝床を整えている', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'sleep', duration: sleepDuration, heading: faceOut, inDoghouse: true, label: '犬小屋ですやすや眠っている' },
-          { kind: 'yawn', pose: 'lie', duration: 2.2, heading: faceOut, label: '目を覚ましてふわぁ〜', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'circle', turns: randRange(1.8, 2.6), radius: 0.16, interior: true, finalHeading: faceOut, label: 'くるくる回って寝床を整えている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'sleep', duration: sleepDuration, heading: faceOut, inDoghouse: true, label: '犬小屋ですやすや眠っている', tail: 'relaxed', clearTailBurst: true },
+          { kind: 'yawn', pose: 'lie', duration: 2.2, heading: faceOut, label: '目を覚ましてふわぁ〜', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         );
         return steps;
       }
 
       case 'sunbathe': {
-        const spot = env.sunnySpot || randomWalkable(g);
-        const safeSpot = findSafePointNear(g, spot.x, spot.z, 0, 1.2, 0.6);
+        const spot = env.sunnySpot || randomWalkable(g, dogPos.x, dogPos.z, m);
+        const safeSpot = findSafePointNear(g, spot.x, spot.z, 0, 1.4, m + 0.05);
         return [
-          { kind: 'move', x: safeSpot.x, z: safeSpot.z, speed: walk, arriveDist: 0.5, label: '日なたを探している', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sniffGround', duration: 1.4, label: 'ぽかぽかの芝生をクンクン', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'circle', turns: randRange(1.6, 2.4), radius: 0.34, label: 'くるくる回って寝る準備', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'lie', duration: 4.5, label: '日なたぼっこ中', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'sleep', duration: randRange(18, 32), sunNap: true, label: '日なたでぽかぽか昼寝中' },
-          { kind: 'yawn', pose: 'lie', duration: 2.2, label: '日なたぼっこから目覚めた', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'move', x: safeSpot.x, z: safeSpot.z, speed: walk, arriveDist: 0.5, label: '日なたを探している', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sniffGround', duration: 1.4, label: 'ぽかぽかの芝生をクンクン', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'circle', turns: randRange(1.6, 2.4), radius: 0.34, label: 'くるくる回って寝る準備', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'lie', duration: 4.5, label: '日なたぼっこ中', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'sleep', duration: randRange(18, 32), sunNap: true, label: '日なたでぽかぽか昼寝中', tail: 'relaxed', clearTailBurst: true },
+          { kind: 'yawn', pose: 'lie', duration: 2.2, label: '日なたぼっこから目覚めた', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'coolInShade': {
-        const shade = findShadeSpot(g, env.clk);
+        const shade = findShadeSpot(g, env.clk, m);
         return [
-          { kind: 'move', x: shade.x, z: shade.z, speed: walk * 0.8, arriveDist: 0.55, label: '涼しい日陰を探している', tail: 'down', ears: 'relaxed' },
-          { kind: 'pose', pose: 'lie', duration: 5.0, coolDown: true, label: '木陰でぐったり涼んでいる', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sleepSide', duration: randRange(14, 24), coolDown: true, label: '日陰でのびてひと休み', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'move', x: shade.x, z: shade.z, speed: walk * 0.8, arriveDist: 0.55, label: '涼しい日陰を探している', tail: 'down', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'lie', duration: 5.0, coolDown: true, label: '木陰でぐったり涼んでいる', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sleepSide', duration: randRange(14, 24), coolDown: true, label: '日陰でのびてひと休み', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'porchLounge': {
         const porch = env.porch;
         if (!porch) return this._buildActionSteps('lieIdle', env, dogPos, dogHeading);
-        const spot = findSafePointNear(g, porch.x, porch.z, 0, 1.0, 0.45);
+        const spot = findSafePointNear(g, porch.x, porch.z, 0, 1.0, m);
         const faceGarden = porch.rotY ?? 0;
         return [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.45, label: '縁側へ向かっている', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sit', duration: 3.0, heading: faceGarden, scanAround: true, shelter: true, label: '縁側で庭を眺めている', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'lie', duration: randRange(14, 24), heading: faceGarden, scanAround: true, shelter: true, label: '縁側でのんびりくつろぎ中', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.45, label: '縁側へ向かっている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sit', duration: 3.0, heading: faceGarden, scanAround: true, shelter: true, label: '縁側で庭を眺めている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'lie', duration: randRange(14, 24), heading: faceGarden, scanAround: true, shelter: true, label: '縁側でのんびりくつろぎ中', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'sitWatch': {
         const steps = [];
         if (Math.random() < 0.5) {
-          const spot = randomWalkable(g);
-          steps.push({ kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.55, label: '見晴らしのいい場所へ移動中', tail: 'relaxed', ears: 'relaxed' });
+          const spot = randomWalkable(g, dogPos.x, dogPos.z, m);
+          steps.push({ kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.55, label: '見晴らしのいい場所へ移動中', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' });
         }
         steps.push({
           kind: 'pose',
@@ -1539,6 +1789,7 @@ export class DogBrain {
           scanAround: true,
           label: 'おすわりして庭を眺めている',
           tail: 'relaxed',
+          clearTailBurst: true,
           ears: 'alert',
         });
         return steps;
@@ -1547,7 +1798,7 @@ export class DogBrain {
       case 'lieIdle': {
         const steps = [];
         if (Math.random() < 0.45) {
-          steps.push({ kind: 'circle', turns: 1.2, radius: 0.3, label: 'ごろりと横になる準備', tail: 'relaxed', ears: 'relaxed' });
+          steps.push({ kind: 'circle', turns: 1.2, radius: 0.3, label: 'ごろりと横になる準備', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' });
         }
         steps.push({
           kind: 'pose',
@@ -1556,115 +1807,123 @@ export class DogBrain {
           scanAround: true,
           label: '伏せてぼーっとしている',
           tail: 'relaxed',
+          clearTailBurst: true,
           ears: 'relaxed',
         });
         if (Math.random() < 0.5) {
-          steps.push({ kind: 'yawn', pose: 'lie', duration: 2.2, label: 'のんびりあくび', tail: 'relaxed', ears: 'relaxed' });
+          steps.push({ kind: 'yawn', pose: 'lie', duration: 2.2, label: 'のんびりあくび', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' });
         }
         return steps;
       }
 
       case 'lookAtObserver': {
         return [
-          { kind: 'lookObserver', pose: Math.random() < 0.6 ? 'sit' : 'stand', duration: randRange(5.5, 8.0), whine: this.profile.sociability > 0.78 && Math.random() < 0.35, label: 'じっとこちらを見て首をかしげている', tail: 'wag', ears: 'alert' },
+          {
+            kind: 'lookObserver',
+            pose: Math.random() < 0.6 ? 'sit' : 'stand',
+            duration: randRange(5.5, 8.0),
+            whine: this.profile.sociability > 0.78 && Math.random() < 0.35,
+            label: 'じっとこちらを見て首をかしげている',
+            tail: 'relaxed',
+            tailBurst: { dur: 2.6, after: 'wag', afterDur: 2.0 },
+            ears: 'alert',
+          },
         ];
       }
 
       case 'scratch': {
         return [
-          { kind: 'pose', pose: 'sit', duration: 0.7, label: 'ちょっとかゆいかも…', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'scratch', duration: randRange(2.8, 4.4), label: 'かゆいところをカキカキ', tail: 'relaxed', ears: 'back' },
-          { kind: 'pose', pose: 'stand', duration: 1.1, headTilt: 0.15, label: 'かいてすっきりした', tail: 'wag', ears: 'relaxed' },
+          { kind: 'pose', pose: 'sit', duration: 0.7, label: 'ちょっとかゆいかも…', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'scratch', duration: randRange(2.8, 4.4), label: 'かゆいところをカキカキ', tail: 'relaxed', clearTailBurst: true, ears: 'back' },
+          { kind: 'pose', pose: 'stand', duration: 1.1, headTilt: 0.15, label: 'かいてすっきりした', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'shakeOff': {
         return [
-          { kind: 'pose', pose: 'stand', duration: 0.5, label: '体を振ろうとしている', tail: 'relaxed', ears: 'back' },
-          { kind: 'shake', duration: randRange(2.0, 2.7), label: 'ブルブル体を振っている', tail: 'relaxed', ears: 'back' },
-          { kind: 'pose', pose: 'stand', duration: 1.0, label: '毛並みがすっきり！', tail: 'wag', ears: 'relaxed' },
+          { kind: 'pose', pose: 'stand', duration: 0.5, label: '体を振ろうとしている', tail: 'relaxed', clearTailBurst: true, ears: 'back' },
+          { kind: 'shake', duration: randRange(2.0, 2.7), label: 'ブルブル体を振っている', tail: 'relaxed', clearTailBurst: true, ears: 'back' },
+          { kind: 'pose', pose: 'stand', duration: 1.0, label: '毛並みがすっきり！', tail: 'relaxed', tailWag: 1.2, ears: 'relaxed' },
         ];
       }
 
       case 'stretch': {
         return [
-          { kind: 'pose', pose: 'stand', duration: 0.4, label: '伸びの準備', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'pose', pose: 'stretch', duration: randRange(2.8, 3.8), label: 'うーんと大きく伸びをしている', tail: 'wag', ears: 'relaxed' },
-          ...(Math.random() < 0.6 ? [{ kind: 'yawn', pose: 'stand', duration: 2.0, label: '伸びをしてすっきり！', tail: 'wag', ears: 'relaxed' }] : []),
+          { kind: 'pose', pose: 'stand', duration: 0.4, label: '伸びの準備', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'stretch', duration: randRange(2.8, 3.8), label: 'うーんと大きく伸びをしている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          ...(Math.random() < 0.6 ? [{ kind: 'yawn', pose: 'stand', duration: 2.0, label: '伸びをしてすっきり！', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' }] : []),
         ];
       }
 
       case 'yawn': {
         return [
-          { kind: 'yawn', pose: Math.random() < 0.55 ? 'sit' : 'stand', duration: 2.6, label: 'ふわぁ〜と大きなあくび', tail: 'relaxed', ears: 'relaxed' },
-          { kind: 'lipLick', duration: 1.2, label: 'ちょっと眠いかも', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'yawn', pose: Math.random() < 0.55 ? 'sit' : 'stand', duration: 2.6, label: 'ふわぁ〜と大きなあくび', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'lipLick', duration: 1.2, label: 'ちょっと眠いかも', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'bellyRoll': {
-        const spot = env.sunnySpot || randomWalkable(g);
-        const safe = findSafePointNear(g, spot.x, spot.z, 0, 1.5, 0.65);
+        const spot = env.sunnySpot || randomWalkable(g, dogPos.x, dogPos.z, m);
+        const safe = findSafePointNear(g, spot.x, spot.z, 0, 1.5, m + 0.08);
         return [
-          { kind: 'move', x: safe.x, z: safe.z, speed: walk, arriveDist: 0.55, label: '気持ちよさそうな芝生へ', tail: 'wag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'lie', duration: 1.0, label: 'ごろんと横になる', tail: 'wag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'bellyUp', duration: 2.2, label: '仰向けになってお腹見せ', tail: 'happyWag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'roll', duration: randRange(4.0, 6.2), label: '仰向けでごろごろしている', tail: 'happyWag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'bellyUp', duration: 2.4, label: 'お腹を見せてご機嫌', tail: 'happyWag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'stand', duration: 1.0, label: 'ごろごろして満足！', tail: 'wag', ears: 'relaxed' },
+          { kind: 'move', x: safe.x, z: safe.z, speed: walk, arriveDist: 0.55, label: '気持ちよさそうな芝生へ', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'lie', duration: 1.0, label: 'ごろんと横になる', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'pose', pose: 'bellyUp', duration: 2.2, label: '仰向けになってお腹見せ', tail: 'relaxed', tailBurst: { dur: 2.5, after: 'wag', afterDur: 2.2 }, ears: 'relaxed' },
+          { kind: 'pose', pose: 'roll', duration: randRange(4.0, 6.2), label: '仰向けでごろごろしている', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'pose', pose: 'bellyUp', duration: 2.4, label: 'お腹を見せてご機嫌', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'stand', duration: 1.0, label: 'ごろごろして満足！', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
       case 'rollInDirt': {
-        const dirtPoi = getPoi(g, 'flowerbed') || getPoi(g, 'tree') || randomWalkable(g);
-        const spot = findSafePointNear(g, dirtPoi.x, dirtPoi.z, 1.1, 2.4, 0.6);
+        const dirtPoi = getPoi(g, 'flowerbed') || getPoi(g, 'tree') || randomWalkable(g, dogPos.x, dogPos.z, m);
+        const spot = findSafePointNear(g, dirtPoi.x, dirtPoi.z, 1.1, 2.4, m + 0.06);
         return [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.1, arriveDist: 0.45, label: '土の匂いに引き寄せられている', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 2.0, label: '土の匂いを夢中で嗅いでいる', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'roll', duration: randRange(4.2, 6.2), addDirt: true, label: '土の上でごろごろ転がっている', tail: 'happyWag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'stand', duration: 1.3, label: '土まみれになって満足げ', tail: 'happyWag', ears: 'alert' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.1, arriveDist: 0.48, label: '土の匂いに引き寄せられている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 2.0, label: '土の匂いを夢中で嗅いでいる', tail: 'relaxed', tailBurst: { dur: 2.2, after: 'wag', afterDur: 2.0 }, ears: 'alert' },
+          { kind: 'pose', pose: 'roll', duration: randRange(4.2, 6.2), addDirt: true, label: '土の上でごろごろ転がっている', tail: 'relaxed', ears: 'relaxed' },
+          { kind: 'pose', pose: 'stand', duration: 1.3, label: '土まみれになって満足げ', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
       }
 
       case 'markTree': {
         const tree = getPoi(g, 'tree');
         if (!tree) return this._buildActionSteps('wander', env, dogPos, dogHeading);
-        const spot = findSafePointNear(g, tree.x, tree.z, 1.1, 1.75, 0.48);
-        const toTree = Math.atan2(tree.x - spot.x, tree.z - spot.z);
-        const sideOn = wrapAngle(toTree - HALF_PI);
+        const spot = resolvePoiSpot(tree, 1.1, 1.85);
+        const sideOn = wrapAngle(spot.heading - HALF_PI);
         return [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.15, arriveDist: 0.42, label: '木の根元へ向かっている', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 2.6, heading: toTree, lookPos: { x: tree.x, y: 0.35, z: tree.z }, label: '木の根元の匂いをチェック中', tail: 'wag', ears: 'alert' },
-          { kind: 'mark', duration: 2.8, heading: sideOn, label: '木の根元にマーキング中', tail: 'relaxed', ears: 'alert' },
-          { kind: 'pose', pose: 'dig', duration: 1.1, heading: sideOn, label: '後ろ足で草を蹴っている', tail: 'happyWag', ears: 'alert' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk * 1.15, arriveDist: 0.45, label: '木の根元へ向かっている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 2.6, heading: spot.heading, lookPos: spot.lookPos, label: '木の根元の匂いをチェック中', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'mark', duration: 2.8, heading: sideOn, label: '木の根元にマーキング中', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'dig', duration: 1.1, heading: sideOn, label: '後ろ足で草を蹴っている', tail: 'relaxed', tailWag: 1.0, ears: 'alert' },
         ];
       }
 
       case 'inspectPond': {
         const pond = getPoi(g, 'pond');
         if (!pond) return this._buildActionSteps('wander', env, dogPos, dogHeading);
-        const spot = findSafePointNear(g, pond.x, pond.z, 0.25, 1.1, 0.48);
-        const facePond = pond.rotY ?? Math.atan2(pond.x - spot.x, pond.z - spot.z);
+        const spot = resolvePoiSpot(pond, 0.25, 1.2);
         const steps = [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.45, label: '池のほとりへ向かっている', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sniffGround', duration: 2.8, heading: facePond, headTilt: 0.22, label: '池の中をのぞきこんでいる', tail: 'wag', ears: 'alert' },
-          { kind: 'pose', pose: 'sit', duration: 3.4, heading: facePond, headTilt: -0.26, label: '水面のゆらめきをじっと見ている', tail: 'wag', ears: 'alert' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.48, label: '池のほとりへ向かっている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'sniffGround', duration: 2.8, heading: spot.heading, headTilt: 0.22, label: '池の中をのぞきこんでいる', tail: 'relaxed', tailWag: 2.0, ears: 'alert' },
+          { kind: 'pose', pose: 'sit', duration: 3.4, heading: spot.heading, headTilt: -0.26, label: '水面のゆらめきをじっと見ている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
         if (this.profile.waterLove > 0.65 && Math.random() < 0.65) {
-          steps.push({ kind: 'pounce', duration: 1.1, heading: facePond, splashWet: true, label: '水面にぱしゃんとちょっかい！', tail: 'happyWag', ears: 'alert' });
+          steps.push({ kind: 'pounce', duration: 1.1, heading: spot.heading, splashWet: true, label: '水面にぱしゃんとちょっかい！', tail: 'relaxed', tailBurst: { dur: 2.0, after: 'relaxed' }, ears: 'alert' });
         }
         return steps;
       }
 
       case 'playInSnow': {
-        const p1 = randomWalkable(g);
-        const p2 = findSafePointNear(g, p1.x + randRange(-4, 4), p1.z + randRange(-4, 4), 1.8, 5.0, 0.6);
+        const p1 = randomWalkable(g, dogPos.x, dogPos.z, m + 0.05);
+        const p2 = findSafePointNear(g, p1.x + randRange(-4, 4), p1.z + randRange(-4, 4), 1.8, 5.0, m + 0.05);
         return [
-          { kind: 'pose', pose: 'play_bow', duration: 1.1, barkOnce: Math.random() < 0.5, label: '雪だ！わくわくしている', tail: 'happyWag', ears: 'alert' },
-          { kind: 'move', x: p1.x, z: p1.z, speed: trot * 1.35, arriveDist: 0.85, label: '雪の中ではしゃいでいる！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'jump', duration: 0.9, label: '雪の上でぴょんぴょん！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'move', x: p2.x, z: p2.z, speed: trot * 1.25, arriveDist: 0.75, label: '雪の中を駆け回っている！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'snowPlunge', duration: randRange(2.8, 4.0), label: '雪に顔をつっこんでいる！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 1.5, headTilt: 0.22, label: '鼻先に雪がついてうれしそう', tail: 'happyWag', ears: 'alert' },
+          { kind: 'pose', pose: 'play_bow', duration: 1.1, barkOnce: Math.random() < 0.5, label: '雪だ！わくわくしている', tail: 'relaxed', tailBurst: { dur: 3.0, after: 'wag', afterDur: 2.8 }, ears: 'alert' },
+          { kind: 'move', x: p1.x, z: p1.z, speed: trot * 1.35, arriveDist: 0.85, label: '雪の中ではしゃいでいる！', tail: 'relaxed', ears: 'alert' },
+          { kind: 'jump', duration: 0.9, label: '雪の上でぴょんぴょん！', tail: 'relaxed', tailWag: 1.5, ears: 'alert' },
+          { kind: 'move', x: p2.x, z: p2.z, speed: trot * 1.25, arriveDist: 0.75, label: '雪の中を駆け回っている！', tail: 'relaxed', ears: 'alert' },
+          { kind: 'snowPlunge', duration: randRange(2.8, 4.0), label: '雪に顔をつっこんでいる！', tail: 'relaxed', tailWag: 1.8, ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 1.5, headTilt: 0.22, label: '鼻先に雪がついてうれしそう', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
       }
 
@@ -1672,14 +1931,16 @@ export class DogBrain {
         const entrance = env.doghouse;
         const inside = env.doghouseInside;
         if (!entrance || !inside) return this._buildActionSteps('porchLounge', env, dogPos, dogHeading);
+        const safeEntrance = findSafePointNear(g, entrance.x, entrance.z, 0, 1.2, m);
         const faceOut = inside.rotY ?? entrance.rotY ?? 0;
+        const stormTail = (env.weatherIntensity > 0.72 && env.windStrength > 0.52) ? 'tucked' : 'down';
         const steps = [];
         if (!this._insideDoghouse) {
           steps.push(
-            { kind: 'move', x: entrance.x, z: entrance.z, speed: trot * 0.8, arriveDist: 0.45, label: '雨宿りしに行っている', tail: 'down', ears: 'back' },
+            { kind: 'move', x: safeEntrance.x, z: safeEntrance.z, speed: trot * 0.8, arriveDist: 0.45, label: '雨宿りしに行っている', tail: stormTail, clearTailBurst: true, ears: 'back' },
             {
               kind: 'move', x: inside.x, z: inside.z, speed: walk * 0.75, interior: true, arriveDist: 0.25,
-              label: '犬小屋に入って雨宿り', tail: 'relaxed', ears: 'relaxed',
+              label: '犬小屋に入って雨宿り', tail: 'down', clearTailBurst: true, ears: 'back',
               onComplete: () => { this._insideDoghouse = true; this.inShelter = true; },
             },
           );
@@ -1689,6 +1950,8 @@ export class DogBrain {
           duration: randRange(18, 32),
           heading: faceOut,
           label: '犬小屋から雨を眺めている',
+          tail: 'down',
+          clearTailBurst: true,
         });
         return steps;
       }
@@ -1696,48 +1959,49 @@ export class DogBrain {
       case 'reactToRain': {
         const entrance = env.doghouse;
         const steps = [
-          { kind: 'pose', pose: 'stand', duration: 1.6, lookSky: true, headTilt: 0.3, label: 'あれ、雨が降ってきた！', tail: 'down', ears: 'back' },
-          { kind: 'shake', duration: 1.2, label: '雨粒をブルブル払っている', tail: 'down', ears: 'back' },
+          { kind: 'pose', pose: 'stand', duration: 1.6, lookSky: true, headTilt: 0.3, label: 'あれ、雨が降ってきた！', tail: 'down', clearTailBurst: true, ears: 'back' },
+          { kind: 'shake', duration: 1.2, label: '雨粒をブルブル払っている', tail: 'down', clearTailBurst: true, ears: 'back' },
         ];
         if (entrance) {
-          steps.push({ kind: 'move', x: entrance.x, z: entrance.z, speed: trot * 1.1, arriveDist: 0.45, label: '急いで犬小屋へ避難中！', tail: 'tucked', ears: 'back' });
+          const safeEntrance = findSafePointNear(g, entrance.x, entrance.z, 0, 1.2, m);
+          steps.push({ kind: 'move', x: safeEntrance.x, z: safeEntrance.z, speed: trot * 1.1, arriveDist: 0.45, label: '急いで犬小屋へ避難中！', tail: 'tucked', clearTailBurst: true, ears: 'back' });
           const inside = env.doghouseInside || entrance;
           const faceOut = inside.rotY ?? entrance.rotY ?? 0;
           steps.push(
             {
               kind: 'move', x: inside.x, z: inside.z, speed: walk * 0.9, interior: true, arriveDist: 0.25,
-              label: '犬小屋に駆け込んだ', tail: 'relaxed', ears: 'back',
+              label: '犬小屋に駆け込んだ', tail: 'down', clearTailBurst: true, ears: 'back',
               onComplete: () => { this._insideDoghouse = true; this.inShelter = true; },
             },
-            { kind: 'watchRain', duration: randRange(16, 28), heading: faceOut, label: '犬小屋から雨を眺めている' },
+            { kind: 'watchRain', duration: randRange(16, 28), heading: faceOut, label: '犬小屋から雨を眺めている', tail: 'down', clearTailBurst: true },
           );
         }
         return steps;
       }
 
       case 'howlAtMoon': {
-        const spot = randomWalkable(g);
+        const spot = randomWalkable(g, dogPos.x, dogPos.z, m);
         const steps = [
-          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.55, label: '月明かりの下へ歩いている', tail: 'relaxed', ears: 'alert' },
-          { kind: 'pose', pose: 'sit', duration: 1.4, lookSky: true, label: '夜空の月を見上げている', tail: 'relaxed', ears: 'alert' },
-          { kind: 'howl', duration: randRange(3.6, 5.2), label: '月に向かって遠吠えしている', tail: 'relaxed', ears: 'back' },
-          { kind: 'pose', pose: 'sit', duration: 2.2, lookSky: true, label: '夜の静けさに耳を澄ませている', tail: 'relaxed', ears: 'alert' },
+          { kind: 'move', x: spot.x, z: spot.z, speed: walk, arriveDist: 0.55, label: '月明かりの下へ歩いている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'pose', pose: 'sit', duration: 1.4, lookSky: true, label: '夜空の月を見上げている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+          { kind: 'howl', duration: randRange(3.6, 5.2), label: '月に向かって遠吠えしている', tail: 'relaxed', clearTailBurst: true, ears: 'back' },
+          { kind: 'pose', pose: 'sit', duration: 2.2, lookSky: true, label: '夜の静けさに耳を澄ませている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
         ];
         if (this.profile.howlBias > 0.7 && Math.random() < 0.65) {
-          steps.push({ kind: 'howl', duration: randRange(3.0, 4.4), label: 'もう一度月に遠吠えしている', tail: 'relaxed', ears: 'back' });
+          steps.push({ kind: 'howl', duration: randRange(3.0, 4.4), label: 'もう一度月に遠吠えしている', tail: 'relaxed', clearTailBurst: true, ears: 'back' });
         }
         return steps;
       }
 
       case 'nightPatrol': {
         const targets = [getPoi(g, 'porch'), getPoi(g, 'tree'), getPoi(g, 'pond')].filter(Boolean);
-        const chosen = targets.length > 0 ? targets.sort(() => Math.random() - 0.5).slice(0, 2) : [randomWalkable(g), randomWalkable(g)];
+        const chosen = targets.length > 0 ? targets.sort(() => Math.random() - 0.5).slice(0, 2) : [randomWalkable(g, dogPos.x, dogPos.z, m), randomWalkable(g, dogPos.x, dogPos.z, m)];
         const steps = [];
         for (let i = 0; i < chosen.length; i++) {
-          const pt = findSafePointNear(g, chosen[i].x, chosen[i].z, 0.7, 1.8, 0.55);
+          const pt = findSafePointNear(g, chosen[i].x, chosen[i].z, 0, 1.8, m);
           steps.push(
-            { kind: 'move', x: pt.x, z: pt.z, speed: walk * 0.92, arriveDist: 0.55, label: '夜の庭を見回り中', tail: 'relaxed', ears: 'alert' },
-            { kind: 'pose', pose: 'stand', duration: 2.4, scanAround: true, label: '夜の気配を確かめている', tail: 'relaxed', ears: 'alert' },
+            { kind: 'move', x: pt.x, z: pt.z, speed: walk * 0.92, arriveDist: 0.55, label: '夜の庭を見回り中', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
+            { kind: 'pose', pose: 'stand', duration: 2.4, scanAround: true, label: '夜の気配を確かめている', tail: 'relaxed', clearTailBurst: true, ears: 'alert' },
           );
         }
         return steps;
@@ -1746,26 +2010,26 @@ export class DogBrain {
       case 'sniffFlowers': {
         const fb = getPoi(g, 'flowerbed');
         if (!fb) return this._buildActionSteps('followScent', env, dogPos, dogHeading);
-        const p1 = findSafePointNear(g, fb.x, fb.z, 0.5, 1.3, 0.48);
-        const p2 = findSafePointNear(g, fb.x + randRange(-1.2, 1.2), fb.z + randRange(-1.2, 1.2), 0.5, 1.4, 0.48);
+        const p1 = findSafePointNear(g, fb.x, fb.z, 0, 1.3, m);
+        const p2 = findSafePointNear(g, fb.x + randRange(-1.2, 1.2), fb.z + randRange(-1.2, 1.2), 0.3, 1.5, m);
         const fLabel = env.clk.season === 'spring'
           ? 'チューリップの匂いを嗅いでいる'
           : (env.clk.season === 'summer'
             ? 'ひまわりのそばをクンクン'
             : (env.clk.season === 'autumn' ? 'コスモスの匂いを嗅いでいる' : '花壇の土をクンクン'));
         return [
-          { kind: 'move', x: p1.x, z: p1.z, speed: walk, arriveDist: 0.45, label: '花壇へ向かっている', tail: 'wag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sniffGround', duration: 2.6, lookPos: { x: fb.x, y: 0.35, z: fb.z }, label: fLabel, tail: 'wag', ears: 'relaxed' },
-          { kind: 'move', x: p2.x, z: p2.z, speed: walk * 0.75, arriveDist: 0.45, label: fLabel, tail: 'wag', ears: 'relaxed' },
-          { kind: 'pose', pose: 'sit', duration: 2.6, headTilt: 0.2, lookPos: { x: fb.x, y: 0.4, z: fb.z }, label: 'お花を眺めてうっとり', tail: 'wag', ears: 'relaxed' },
+          { kind: 'move', x: p1.x, z: p1.z, speed: walk, arriveDist: 0.48, label: '花壇へ向かっている', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sniffGround', duration: 2.6, lookPos: { x: fb.x, y: 0.35, z: fb.z }, label: fLabel, tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'move', x: p2.x, z: p2.z, speed: walk * 0.75, arriveDist: 0.48, label: fLabel, tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
+          { kind: 'pose', pose: 'sit', duration: 2.6, headTilt: 0.2, lookPos: { x: fb.x, y: 0.4, z: fb.z }, label: 'お花を眺めてうっとり', tail: 'relaxed', tailWag: 1.6, ears: 'relaxed' },
         ];
       }
 
       case 'barkPlayful': {
         return [
-          { kind: 'pose', pose: 'stand', duration: 1.0, scanAround: true, label: '何か音がしたみたい', tail: 'wag', ears: 'alert' },
-          { kind: 'bark', count: Math.floor(randRange(1, 3)), label: '気になってワンワン！', tail: 'happyWag', ears: 'alert' },
-          { kind: 'pose', pose: 'stand', duration: 1.5, label: '異常なし！', tail: 'wag', ears: 'relaxed' },
+          { kind: 'pose', pose: 'stand', duration: 1.0, scanAround: true, label: '何か音がしたみたい', tail: 'relaxed', tailBurst: { dur: 2.2, after: 'wag', afterDur: 2.0 }, ears: 'alert' },
+          { kind: 'bark', count: Math.floor(randRange(1, 3)), label: '気になってワンワン！', tail: 'relaxed', ears: 'alert' },
+          { kind: 'pose', pose: 'stand', duration: 1.5, label: '異常なし！', tail: 'relaxed', clearTailBurst: true, ears: 'relaxed' },
         ];
       }
 
@@ -1774,7 +2038,167 @@ export class DogBrain {
     }
   }
 
-  _executeCurrentStep(realDt, env, dogPos, dogHeading, animator, emitEvent) {
+  _triggerTailBurst(burstDur = 2.6, afterMode = 'relaxed', afterDur = 0) {
+    this._tailBurstMode = 'happyWag';
+    this._tailBurstTimer = Math.max(0.5, burstDur);
+    this._tailAfterMode = afterMode === 'wag' ? 'wag' : 'relaxed';
+    this._tailAfterTimer = this._tailAfterMode === 'wag'
+      ? (afterDur > 0 ? afterDur : randRange(2.0, 3.2))
+      : 0;
+  }
+
+  _triggerTailWag(wagDur = 2.2) {
+    this._tailBurstMode = 'wag';
+    this._tailBurstTimer = Math.max(0.5, wagDur);
+    this._tailAfterMode = 'relaxed';
+    this._tailAfterTimer = 0;
+  }
+
+  _clearTailBurst() {
+    this._tailBurstMode = null;
+    this._tailBurstTimer = 0;
+    this._tailAfterMode = 'relaxed';
+    this._tailAfterTimer = 0;
+  }
+
+  _resolveTailMode(realDt, env, step, stepTailHint) {
+    // 1. Trigger step-entry tail burst/clear once per plan step
+    const stepKey = `${this._planSerial}:${this._stepIndex}`;
+    if (stepKey !== this._tailStepKey) {
+      this._tailStepKey = stepKey;
+      if (step?.tailBurst) {
+        this._triggerTailBurst(step.tailBurst.dur, step.tailBurst.after, step.tailBurst.afterDur);
+      } else if (typeof step?.tailWag === 'number' && step.tailWag > 0) {
+        this._triggerTailWag(step.tailWag);
+      } else if (
+        step?.clearTailBurst ||
+        step?.tailAlert ||
+        step?.kind === 'sleep' ||
+        step?.pose === 'sleepCurl' ||
+        step?.pose === 'sleepSide' ||
+        step?.pose === 'lie' ||
+        stepTailHint === 'down' ||
+        stepTailHint === 'tucked'
+      ) {
+        this._clearTailBurst();
+      }
+    }
+
+    // 2. Advance timed burst state (happyWag -> wag -> relaxed)
+    if (this._tailBurstTimer > 0) {
+      this._tailBurstTimer -= realDt;
+      if (this._tailBurstTimer <= 0) {
+        if (this._tailAfterMode === 'wag' && this._tailAfterTimer > 0) {
+          this._tailBurstMode = 'wag';
+          this._tailBurstTimer = this._tailAfterTimer;
+          this._tailAfterMode = 'relaxed';
+          this._tailAfterTimer = 0;
+        } else {
+          this._tailBurstMode = null;
+          this._tailBurstTimer = 0;
+        }
+      }
+    }
+
+    // 3. Sleep & deep rest -> always still ('relaxed')
+    if (
+      this.isSleeping ||
+      step?.kind === 'sleep' ||
+      step?.pose === 'sleepCurl' ||
+      step?.pose === 'sleepSide'
+    ) {
+      return 'relaxed';
+    }
+
+    // 4. Scared / stormy heavy rain outdoors -> 'tucked'
+    if (stepTailHint === 'tucked') return 'tucked';
+    if (env.isRaining && !this.inShelter && env.weatherIntensity > 0.72 && env.windStrength > 0.52) {
+      return 'tucked';
+    }
+
+    // 5. Rain / gloomy / disappointed / low comfort -> 'down'
+    if (stepTailHint === 'down') return 'down';
+    if (env.isRaining && !this.inShelter && !(this.profile.waterLove > 0.85 && env.weatherIntensity < 0.4)) {
+      return 'down';
+    }
+    if (step?.kind === 'watchRain') {
+      return (env.weatherIntensity > 0.55 || (this._stepElapsed % 14) < 7) ? 'down' : 'relaxed';
+    }
+    if (this.needs.comfort < 0.30) {
+      return 'down';
+    }
+
+    // 6. Alert stalking (bird stalk / alert watch) -> still & poised ('relaxed')
+    if (step?.tailAlert) {
+      return 'relaxed';
+    }
+
+    // 7. Sleepy / exhausted mood suppresses wagging
+    if (this.mood === 'sleepy' || this.needs.energy < 0.22) {
+      return 'relaxed';
+    }
+
+    // 8. Active timed happyWag / wag burst
+    if (this._tailBurstMode) {
+      return this._tailBurstMode;
+    }
+
+    // 9. Safety time-cap if any step explicitly hints 'happyWag' or 'wag'
+    const t = this._stepElapsed;
+    if (stepTailHint === 'happyWag') {
+      return t < 2.6 ? 'happyWag' : (t < 5.2 ? 'wag' : 'relaxed');
+    }
+    if (stepTailHint === 'wag') {
+      return t < 3.0 ? 'wag' : 'relaxed';
+    }
+
+    return 'relaxed';
+  }
+
+  _handleMoveStuck(step, env, dogPos) {
+    const planId = this._currentPlan?.id;
+    this._stepData.stuckRetries = (this._stepData.stuckRetries || 0) + 1;
+
+    const roamingActions = (
+      planId === 'wander' ||
+      planId === 'followScent' ||
+      planId === 'zoomies' ||
+      planId === 'chaseFalling' ||
+      planId === 'playInSnow' ||
+      planId === 'nightPatrol' ||
+      planId === 'sunbathe' ||
+      planId === 'coolInShade' ||
+      planId === 'bellyRoll' ||
+      planId === 'rollInDirt' ||
+      planId === 'dig' ||
+      planId === 'sitWatch' ||
+      planId === 'howlAtMoon'
+    );
+
+    if (roamingActions && this._stepData.stuckRetries <= 2) {
+      const fresh = randomWalkable(env.garden, dogPos.x, dogPos.z, this._bodyMargin + 0.05);
+      step.x = fresh.x;
+      step.z = fresh.z;
+      this._nav.reset(dogPos.x, dogPos.z);
+      this._nav.flipAvoidSide();
+      this._stepElapsed = 0;
+      return;
+    }
+
+    if (!roamingActions && !step.interior && this._stepData.stuckRetries === 1) {
+      const fixed = findSafePointNear(env.garden, step.x, step.z, 0, 2.4, this._bodyMargin);
+      step.x = fixed.x;
+      step.z = fixed.z;
+      this._nav.reset(dogPos.x, dogPos.z);
+      this._nav.flipAvoidSide();
+      return;
+    }
+
+    // Could not make progress after retries -> pick a brand new action & destination
+    this._finishCurrentAction();
+  }
+
+  _executeCurrentStep(realDt, env, dogPos, dogHeading, animator, emitEvent, wasBlocked = false) {
     if (!this._currentPlan) return;
     const step = this._currentPlan.steps[this._stepIndex];
     if (!step) {
@@ -1799,11 +2223,10 @@ export class DogBrain {
         this._lastPose = pose;
         animator?.setPose?.(pose);
       }
-      const nextTail = tail || 'relaxed';
-      if (nextTail !== this._lastTail) {
-        this._lastTail = nextTail;
-        animator?.setTail?.(nextTail);
-      }
+      const nextTail = this._resolveTailMode(realDt, env, step, tail);
+      this._lastTail = nextTail;
+      animator?.setTail?.(nextTail);
+
       const nextEars = ears || 'relaxed';
       if (nextEars !== this._lastEars) {
         this._lastEars = nextEars;
@@ -1823,17 +2246,31 @@ export class DogBrain {
       case 'move': {
         const steer = this._nav.computeSteering(
           env.garden, dogPos.x, dogPos.z, dogHeading,
-          step.x, step.z, step.speed, realDt, Boolean(step.interior)
+          step.x, step.z, step.speed, realDt, Boolean(step.interior),
+          this._bodyMargin, wasBlocked
         );
+        // Keep step destination snapped to walkable point if it was inside an obstacle
+        if (!step.interior && Number.isFinite(steer.goalX) && Number.isFinite(steer.goalZ)) {
+          step.x = steer.goalX;
+          step.z = steer.goalZ;
+        }
         const arrive = step.arriveDist || 0.5;
-        if (steer.distToGoal <= arrive || steer.stuck || t > 22) {
+        if (steer.distToGoal <= arrive) {
           this._advanceStep(dogPos);
+          return;
+        }
+        if (steer.stuck) {
+          this._handleMoveStuck(step, env, dogPos);
+          return;
+        }
+        if (t > 24) {
+          this._finishCurrentAction();
           return;
         }
         this.locomotion.mode = 'move';
         this.locomotion.targetSpeed = steer.speed;
         this.locomotion.targetHeading = steer.heading;
-        this.locomotion.turnRate = steer.speed > 3.6 ? 2.6 : 3.8;
+        this.locomotion.turnRate = steer.avoiding ? 4.8 : (steer.speed > 3.6 ? 2.8 : 3.8);
         setAnim(step.poseDuringMove || 'stand', step.tail, step.ears, null);
         break;
       }
@@ -1853,18 +2290,24 @@ export class DogBrain {
         // Track nearest walkable point to dynamic target
         let gx = objPos.x;
         let gz = objPos.z;
-        if (!isWalkable(env.garden, gx, gz, 0.55)) {
-          const safe = findSafePointNear(env.garden, gx, gz, 0.4, 2.2, 0.55);
+        if (!isWalkable(env.garden, gx, gz, this._bodyMargin)) {
+          const safe = findSafePointNear(env.garden, gx, gz, 0.3, 2.8, this._bodyMargin);
           gx = safe.x; gz = safe.z;
         }
         const steer = this._nav.computeSteering(
           env.garden, dogPos.x, dogPos.z, dogHeading,
-          gx, gz, step.speed, realDt, false
+          gx, gz, step.speed, realDt, false,
+          this._bodyMargin, wasBlocked
         );
+        if (steer.stuck) {
+          // Target is across an obstacle (e.g. pond/fence) and unreachable -> re-pick action
+          this._finishCurrentAction();
+          return;
+        }
         this.locomotion.mode = 'move';
         this.locomotion.targetSpeed = steer.speed;
         this.locomotion.targetHeading = steer.heading;
-        this.locomotion.turnRate = 3.6;
+        this.locomotion.turnRate = steer.avoiding ? 4.8 : 3.8;
 
         // Playful hop when close to butterfly
         if (step.jumpClose && d < 1.9 && (Math.floor(t * 1.2) % 2 === 0)) {
@@ -1882,13 +2325,25 @@ export class DogBrain {
           this._stepData.dir = Math.random() < 0.5 ? 1 : -1;
           this._stepData.turned = 0;
           this._stepData.startHeading = dogHeading;
+          const rad = step.radius || 0.3;
+          let canCircle = Boolean(step.interior);
+          if (!canCircle) {
+            canCircle =
+              isWalkable(env.garden, dogPos.x + rad, dogPos.z, this._bodyMargin) &&
+              isWalkable(env.garden, dogPos.x - rad, dogPos.z, this._bodyMargin) &&
+              isWalkable(env.garden, dogPos.x, dogPos.z + rad, this._bodyMargin) &&
+              isWalkable(env.garden, dogPos.x, dogPos.z - rad, this._bodyMargin);
+          }
+          this._stepData.canCircle = canCircle;
         }
         const angSpeed = 2.6;
         this._stepData.turned += angSpeed * realDt;
         const nextHeading = wrapAngle(this._stepData.startHeading + this._stepData.dir * this._stepData.turned);
-        this.locomotion.mode = 'circle';
+        this.locomotion.mode = this._stepData.canCircle ? 'circle' : 'turn';
         this.locomotion.targetHeading = nextHeading;
-        this.locomotion.targetSpeed = clamp((step.radius || 0.3) * angSpeed, step.interior ? 0.22 : 0.42, 0.95);
+        this.locomotion.targetSpeed = this._stepData.canCircle
+          ? clamp((step.radius || 0.3) * angSpeed, step.interior ? 0.22 : 0.42, 0.95)
+          : 0;
         this.locomotion.turnRate = 4.5;
         setAnim('stand', step.tail, step.ears, null);
 
@@ -1971,7 +2426,7 @@ export class DogBrain {
           }
         }
         const look = step.bowlPos ? { x: step.bowlPos.x, y: 0.12, z: step.bowlPos.z } : null;
-        setAnim('eat', 'wag', 'relaxed', look);
+        setAnim('eat', step.tail || 'relaxed', 'relaxed', look);
         if (t >= (step.duration || 6.0) || this.needs.hunger <= 0.02 || (env.garden?.foodLevel ?? 1) <= 0.01) {
           this._advanceStep(dogPos);
         }
@@ -2010,7 +2465,7 @@ export class DogBrain {
           this._stepData.digTimer = randRange(0.45, 0.7);
           emitEvent?.('dig');
         }
-        setAnim('dig', step.tail || 'happyWag', 'alert', null);
+        setAnim('dig', step.tail || 'relaxed', 'alert', null);
         if (t >= (step.duration || 4.0)) {
           this._advanceStep(dogPos);
         }
@@ -2021,7 +2476,7 @@ export class DogBrain {
         this.coatDelta.snowDelta += realDt * 0.18;
         this.needs.boredom = clamp(this.needs.boredom - realDt * 0.08, 0, 1);
         const subPose = (t % 1.6) < 1.0 ? 'dig' : 'sniffGround';
-        setAnim(subPose, 'happyWag', 'alert', null);
+        setAnim(subPose, step.tail || 'relaxed', 'alert', null);
         if (t >= (step.duration || 3.2)) {
           this._advanceStep(dogPos);
         }
@@ -2036,7 +2491,7 @@ export class DogBrain {
         this.coatDelta.wetDelta -= realDt * 0.28;
         this.coatDelta.snowDelta -= realDt * 0.36;
         this.coatDelta.dirtDelta -= realDt * 0.09;
-        setAnim('shake', 'relaxed', 'back', null);
+        setAnim('shake', step.tail || 'relaxed', 'back', null);
         if (t >= (step.duration || 2.2)) {
           this._advanceStep(dogPos);
         }
@@ -2080,7 +2535,7 @@ export class DogBrain {
           this.locomotion.mode = 'turn';
           this.locomotion.targetHeading = step.heading;
         }
-        setAnim('stand', step.tail || 'wag', 'relaxed', null);
+        setAnim('stand', step.tail || 'relaxed', 'relaxed', null);
         if (t >= dur) this._advanceStep(dogPos);
         break;
       }
@@ -2106,7 +2561,7 @@ export class DogBrain {
         }
         this.needs.social = clamp(this.needs.social - realDt * 0.075, 0, 1);
         this.needs.curiosity = clamp(this.needs.curiosity - realDt * 0.04, 0, 1);
-        setAnim(step.pose || 'sit', step.tail || 'wag', step.ears || 'alert', cam);
+        setAnim(step.pose || 'sit', step.tail || 'relaxed', step.ears || 'alert', cam);
         if (t >= dur) this._advanceStep(dogPos);
         break;
       }
@@ -2129,7 +2584,7 @@ export class DogBrain {
           }
         }
         const inBurst = (t % interval) < 0.52;
-        setAnim(inBurst ? 'bark' : 'stand', step.tail || 'happyWag', 'alert', look);
+        setAnim(inBurst ? 'bark' : 'stand', step.tail || 'relaxed', 'alert', look);
         if (t >= count * interval + 0.25) {
           this._advanceStep(dogPos);
         }
@@ -2175,7 +2630,7 @@ export class DogBrain {
           this.locomotion.mode = 'turn';
           this.locomotion.targetHeading = step.heading;
         }
-        setAnim(step.kind, step.tail || 'happyWag', 'alert', look);
+        setAnim(step.kind, step.tail || 'relaxed', 'alert', look);
         if (t >= dur) this._advanceStep(dogPos);
         break;
       }
@@ -2190,6 +2645,7 @@ export class DogBrain {
           this._stepData.phase = 'rush';
           this._stepData.round = 0;
           this._stepData.subT = 0;
+          this._stepData.stuckCount = 0;
         }
         this._stepData.subT += realDt;
         const look = { x: toy.x, y: getGroundY(env.garden, toy.x, toy.z) + 0.16, z: toy.z };
@@ -2198,17 +2654,28 @@ export class DogBrain {
         if (this._stepData.phase === 'rush') {
           const steer = this._nav.computeSteering(
             env.garden, dogPos.x, dogPos.z, dogHeading,
-            toy.x, toy.z, 3.6 * this.profile.speedScale, realDt, false
+            toy.x, toy.z, 3.6 * this.profile.speedScale, realDt, false,
+            this._bodyMargin, wasBlocked
           );
           this.locomotion.mode = 'move';
           this.locomotion.targetSpeed = steer.speed;
           this.locomotion.targetHeading = steer.heading;
-          this.locomotion.turnRate = 3.8;
-          setAnim('stand', 'happyWag', 'alert', look);
-          if (d < 0.85 || steer.stuck || this._stepData.subT > 4.5) {
+          this.locomotion.turnRate = steer.avoiding ? 4.8 : 3.8;
+          setAnim('stand', 'relaxed', 'alert', look);
+          if (steer.stuck) {
+            this._stepData.stuckCount++;
+            if (this._stepData.stuckCount >= 2) {
+              this._finishCurrentAction();
+              return;
+            }
+            this._nav.reset(dogPos.x, dogPos.z);
+            this._nav.flipAvoidSide();
+            this._stepData.subT = 0;
+          } else if (d < 0.85 || this._stepData.subT > 4.5) {
             this._stepData.phase = 'pounce';
             this._stepData.subT = 0;
-            nudgeBallIfPossible(env.garden, dogPos.x, dogPos.z);
+            this._triggerTailWag(1.4);
+            nudgeBallIfPossible(env.garden, dogPos.x, dogPos.z, this._bodyMargin);
             if (Math.random() < 0.35 + this.profile.vocal * 0.25) emitEvent?.('bark');
           }
         } else if (this._stepData.phase === 'pounce') {
@@ -2216,7 +2683,7 @@ export class DogBrain {
           this.motionEffects.jumpHeight = Math.sin(u * Math.PI) * 0.26;
           this.locomotion.mode = 'turn';
           this.locomotion.targetHeading = Math.atan2(toy.x - dogPos.x, toy.z - dogPos.z);
-          setAnim('pounce', 'happyWag', 'alert', look);
+          setAnim('pounce', 'relaxed', 'alert', look);
           if (this._stepData.subT >= 0.85) {
             this._stepData.round++;
             if (this._stepData.round >= (step.rounds || 3)) {
@@ -2226,22 +2693,25 @@ export class DogBrain {
             }
             this._stepData.phase = 'orbit';
             this._stepData.subT = 0;
+            this._nav.reset(dogPos.x, dogPos.z);
             const orbitA = Math.atan2(dogPos.x - toy.x, dogPos.z - toy.z) + (Math.random() < 0.5 ? 1.4 : -1.4);
-            const opt = findSafePointNear(env.garden, toy.x + Math.sin(orbitA) * 2.2, toy.z + Math.cos(orbitA) * 2.2, 0, 1.2, 0.55);
+            const opt = findSafePointNear(env.garden, toy.x + Math.sin(orbitA) * 2.2, toy.z + Math.cos(orbitA) * 2.2, 0, 1.5, this._bodyMargin + 0.05);
             this._stepData.orbitX = opt.x;
             this._stepData.orbitZ = opt.z;
           }
         } else if (this._stepData.phase === 'orbit') {
           const steer = this._nav.computeSteering(
             env.garden, dogPos.x, dogPos.z, dogHeading,
-            this._stepData.orbitX, this._stepData.orbitZ, 3.2 * this.profile.speedScale, realDt, false
+            this._stepData.orbitX, this._stepData.orbitZ, 3.2 * this.profile.speedScale, realDt, false,
+            this._bodyMargin, wasBlocked
           );
           this.locomotion.mode = 'move';
           this.locomotion.targetSpeed = steer.speed;
           this.locomotion.targetHeading = steer.heading;
-          this.locomotion.turnRate = 3.8;
-          setAnim('stand', 'happyWag', 'alert', look);
+          this.locomotion.turnRate = steer.avoiding ? 4.8 : 3.8;
+          setAnim('stand', 'relaxed', 'alert', look);
           if (steer.distToGoal < 0.7 || steer.stuck || this._stepData.subT > 2.6) {
+            this._nav.reset(dogPos.x, dogPos.z);
             this._stepData.phase = 'rush';
             this._stepData.subT = 0;
           }
@@ -2335,7 +2805,7 @@ export class DogBrain {
           id: this._currentPlan.id,
           label: t > 14 ? '雨がやむのを待っている' : '犬小屋から雨を眺めている',
         };
-        setAnim(pose, 'relaxed', 'relaxed', lookOut);
+        setAnim(pose, null, 'relaxed', lookOut);
         if (t >= (step.duration || 22) || !env.isRaining) {
           this._advanceStep(dogPos);
         }

@@ -140,6 +140,26 @@ export class DogAnimator {
     this._breathPhase = Math.random() * Math.PI * 2;
     this._pantPhase = 0;
 
+    // Smoothed & irregular tail dynamics state
+    this._tailLift = -0.3;
+    this._tailCurlScale = 0.85;
+    this._tailSegExtra = 0;
+    this._tailFreq = 1.4;
+    this._tailAmp = 0;
+    this._tailGaitSway = 0;
+    this._happyWagElapsed = 0;
+    this._tailBurstState = 'pause';
+    this._tailBurstTimer = 4.0 + Math.random() * 6.0;
+    this._tailBurstEnergy = 1.0;
+    this._tailBurstSpeedMul = 1.0;
+    this._singleWagProgress = -1;
+    this._singleWagDir = 1;
+    this._singleWagAmp = 0;
+    this._singleWagDuration = 0.7;
+    this._sleepThumpTimer = 10.0 + Math.random() * 14.0;
+    this._sleepThumpProgress = -1;
+    this._sleepThumpDir = 1;
+
     // Autonomous micro-life timers
     this._exertion = 0;
     this._blinkTimer = 1.8 + Math.random() * 3.5;
@@ -286,8 +306,34 @@ export class DogAnimator {
 
   setTail(mode) {
     if (mode === 'wag' || mode === 'happyWag' || mode === 'relaxed' || mode === 'down' || mode === 'tucked') {
-      this._tailMode = mode;
+      if (mode !== this._tailMode) {
+        this._tailMode = mode;
+        if (mode === 'happyWag') {
+          this._tailBurstState = 'wagging';
+          this._tailBurstTimer = 4.5 + Math.random() * 3.0;
+          this._tailBurstEnergy = 0.95 + Math.random() * 0.15;
+          this._tailBurstSpeedMul = 0.94 + Math.random() * 0.14;
+        } else if (mode === 'wag') {
+          this._tailBurstState = Math.random() < 0.72 ? 'wagging' : 'single';
+          this._tailBurstTimer = 2.0 + Math.random() * 2.6;
+          this._tailBurstEnergy = 0.82 + Math.random() * 0.30;
+          this._tailBurstSpeedMul = 0.88 + Math.random() * 0.24;
+          if (this._tailBurstState === 'single') {
+            this._triggerSingleWag(0.14, 0.72);
+          }
+        } else {
+          this._tailBurstState = 'pause';
+          this._tailBurstTimer = mode === 'relaxed' ? (5.0 + Math.random() * 9.0) : 4.0;
+        }
+      }
     }
+  }
+
+  _triggerSingleWag(amp, duration) {
+    this._singleWagProgress = 0;
+    this._singleWagDir = Math.random() < 0.5 ? 1 : -1;
+    this._singleWagAmp = amp;
+    this._singleWagDuration = duration;
   }
 
   setEars(mode) {
@@ -1259,9 +1305,9 @@ export class DogAnimator {
       s.headZ + this._headTilt * lookSuppress
     );
 
-    // Eyes (fast crisp gaze tracking inside fixed eyelid sockets!)
-    const eyeYawDelta = THREE.MathUtils.clamp((this._eyeYaw - (neckLookYaw + headLookYaw)) * 0.65, -0.30, 0.30);
-    const eyePitchDelta = THREE.MathUtils.clamp((this._eyePitch - (neckLookPitch + headLookPitch)) * 0.55, -0.22, 0.22);
+    // Eyes (restrained natural gaze tracking inside fixed eyelid sockets so sclera never shows)
+    const eyeYawDelta = THREE.MathUtils.clamp((this._eyeYaw - (neckLookYaw + headLookYaw)) * 0.55, -0.22, 0.22);
+    const eyePitchDelta = THREE.MathUtils.clamp((this._eyePitch - (neckLookPitch + headLookPitch)) * 0.45, -0.16, 0.16);
     if (this.eyes.length >= 2) {
       this.eyes[0].rotation.set(eyePitchDelta, eyeYawDelta, 0);
       this.eyes[1].rotation.set(eyePitchDelta, eyeYawDelta, 0);
@@ -1269,7 +1315,7 @@ export class DogAnimator {
 
     // Eyelids (combine pose closure + autonomous blinking)
     const lidClose = THREE.MathUtils.clamp(Math.max(s.eyelidClose, blinkAmt), 0, 1);
-    const lidRot = lidClose * 1.42;
+    const lidRot = lidClose * 1.62;
     if (j.eyelidL) j.eyelidL.rotation.x = lidRot;
     if (j.eyelidR) j.eyelidR.rotation.x = lidRot;
 
@@ -1346,7 +1392,7 @@ export class DogAnimator {
     }
 
     // 8. 5-Segment Travelling-Wave Tail Animation
-    this._applyTail(dt, moveBlend, wGallop);
+    this._applyTail(dt, moveBlend, wGallop, strideScale);
 
     // 9. Update Fur Shader Dynamic Uniforms (shake flutter & time)
     if (this.dog.furUniforms) {
@@ -1414,51 +1460,182 @@ export class DogAnimator {
     }
   }
 
-  _applyTail(dt, moveBlend, wGallop) {
+  _applyTail(dt, moveBlend, wGallop, strideScale = 1.0) {
     const j = this.joints;
     const na = this.metrics.neutralAngles;
     const s = this._s;
     const tailType = this.breed.tailType || 'straight';
     const isSleep = SLEEP_POSES.has(this._targetPose);
+    const isHappy = !isSleep && (this._tailMode === 'happyWag' || this._targetPose === 'play_bow');
 
-    let wagFreq = 0.9;
-    let wagAmp = 0.08;
-    let liftBias = 0.0;
+    // Track sustained happyWag duration so excitement gradually eases off after a few seconds
+    if (isHappy) {
+      this._happyWagElapsed += dt;
+    } else {
+      this._happyWagElapsed = Math.max(0, this._happyWagElapsed - dt * 1.8);
+    }
+
+    // Advance one-shot single wag if active
+    if (this._singleWagProgress >= 0) {
+      this._singleWagProgress += dt / Math.max(0.2, this._singleWagDuration);
+      if (this._singleWagProgress >= 1.0) {
+        this._singleWagProgress = -1;
+      }
+    }
+
+    // Advance occasional single sleep thump ("パタッ") while sleeping
+    let sleepThump = 0;
+    if (isSleep) {
+      if (this._sleepThumpProgress >= 0) {
+        this._sleepThumpProgress += dt / 0.55;
+        if (this._sleepThumpProgress >= 1.0) {
+          this._sleepThumpProgress = -1;
+        } else {
+          sleepThump = Math.sin(this._sleepThumpProgress * Math.PI);
+        }
+      } else {
+        this._sleepThumpTimer -= dt;
+        if (this._sleepThumpTimer <= 0) {
+          this._sleepThumpProgress = 0;
+          this._sleepThumpDir = Math.random() < 0.5 ? 1 : -1;
+          this._sleepThumpTimer = 12.0 + Math.random() * 16.0;
+        }
+      }
+    } else {
+      this._sleepThumpProgress = -1;
+    }
+
+    // Determine target frequency, amplitude, carriage, and natural irregularities per mode
+    let targetFreq = this._tailFreq;
+    let targetAmp = 0;
+    let targetGaitSway = 0;
+    let targetLift = 0;
+    let targetCurlScale = 1.0;
+    let targetSegExtra = 0;
 
     if (isSleep) {
-      wagFreq = 0.25;
-      wagAmp = 0.015;
-      liftBias = -0.25;
-    } else if (this._tailMode === 'happyWag' || this._targetPose === 'play_bow') {
-      wagFreq = 5.0;
-      wagAmp = tailType === 'curled' ? 0.30 : (tailType === 'short' ? 0.48 : 0.46);
-      liftBias = 0.28;
+      targetAmp = 0;
+      targetGaitSway = 0;
+      targetLift = -0.28;
+      targetCurlScale = 0.55;
+      this._singleWagAmp = damp(this._singleWagAmp, 0, 5.0, dt);
+    } else if (isHappy) {
+      // Big fast wag at first, gradually calming down after ~3.5s with occasional brief breathers
+      const excitement = 1.0 - 0.62 * smoothstep(3.5, 14.0, this._happyWagElapsed);
+      const maxAmp = tailType === 'curled' ? 0.28 : (tailType === 'short' ? 0.44 : 0.42);
+
+      if (this._happyWagElapsed <= 6.5 && this._tailBurstState !== 'wagging') {
+        this._tailBurstState = 'wagging';
+        this._tailBurstTimer = 3.5 + Math.random() * 2.5;
+      }
+
+      this._tailBurstTimer -= dt;
+      if (this._tailBurstTimer <= 0) {
+        if (this._happyWagElapsed > 6.5 && this._tailBurstState === 'wagging' && Math.random() < 0.45) {
+          this._tailBurstState = 'pause';
+          this._tailBurstTimer = 0.9 + Math.random() * 1.8;
+        } else {
+          this._tailBurstState = 'wagging';
+          this._tailBurstTimer = 2.6 + Math.random() * 3.8;
+          this._tailBurstEnergy = 0.85 + Math.random() * 0.28;
+          this._tailBurstSpeedMul = 0.90 + Math.random() * 0.20;
+        }
+      }
+
+      const happyActive = this._tailBurstState === 'pause' ? 0.12 : 1.0;
+      targetFreq = THREE.MathUtils.lerp(2.1, 4.5, excitement) * this._tailBurstSpeedMul;
+      targetAmp = maxAmp * excitement * this._tailBurstEnergy * happyActive;
+      targetLift = THREE.MathUtils.lerp(0.08, 0.26, excitement);
+      targetCurlScale = 1.0;
     } else if (this._tailMode === 'wag') {
-      wagFreq = 3.2;
-      wagAmp = tailType === 'curled' ? 0.22 : (tailType === 'short' ? 0.36 : 0.34);
-      liftBias = 0.14;
+      // Gentle, smaller, slower wag with natural pauses and occasional single wags
+      const baseAmp = tailType === 'curled' ? 0.10 : (tailType === 'short' ? 0.17 : 0.15);
+
+      this._tailBurstTimer -= dt;
+      if (this._tailBurstTimer <= 0) {
+        if (this._tailBurstState === 'wagging') {
+          this._tailBurstState = 'pause';
+          this._tailBurstTimer = 1.8 + Math.random() * 3.2;
+        } else if (this._tailBurstState === 'single') {
+          this._tailBurstState = 'pause';
+          this._tailBurstTimer = 1.6 + Math.random() * 3.0;
+        } else {
+          if (Math.random() < 0.62) {
+            this._tailBurstState = 'wagging';
+            this._tailBurstTimer = 1.8 + Math.random() * 3.0;
+            this._tailBurstEnergy = 0.78 + Math.random() * 0.34;
+            this._tailBurstSpeedMul = 0.85 + Math.random() * 0.28;
+          } else {
+            this._tailBurstState = 'single';
+            this._tailBurstTimer = 1.0 + Math.random() * 1.4;
+            this._triggerSingleWag(baseAmp * (0.85 + Math.random() * 0.35), 0.65 + Math.random() * 0.22);
+          }
+        }
+      }
+
+      targetFreq = 1.65 * this._tailBurstSpeedMul;
+      targetAmp = this._tailBurstState === 'wagging' ? (baseAmp * this._tailBurstEnergy) : 0;
+      targetLift = this._tailBurstState === 'pause' ? 0.02 : 0.09;
+      targetCurlScale = 0.96;
     } else if (this._tailMode === 'down') {
-      wagFreq = 0.6;
-      wagAmp = 0.04;
-      liftBias = -0.45;
+      // Lowered and still
+      targetAmp = 0;
+      targetGaitSway = 0;
+      targetLift = tailType === 'curled'
+        ? -0.45
+        : Math.min(-0.48, -0.64 - na.tailBaseX * 0.65);
+      targetCurlScale = tailType === 'curled' ? 0.65 : 0.25;
+      this._singleWagAmp = damp(this._singleWagAmp, 0, 5.0, dt);
     } else if (this._tailMode === 'tucked') {
-      wagFreq = 0.4;
-      wagAmp = 0.02;
-      liftBias = -0.95;
+      // Tucked tightly and still
+      targetAmp = 0;
+      targetGaitSway = 0;
+      targetLift = Math.min(-0.85, -1.02 - na.tailBaseX * 0.75);
+      targetCurlScale = 0.15;
+      targetSegExtra = -0.18;
+      this._singleWagAmp = damp(this._singleWagAmp, 0, 5.0, dt);
     } else {
-      // 'relaxed'
-      wagFreq = 1.0 + moveBlend * 1.4;
-      wagAmp = 0.09 + moveBlend * 0.10;
-      liftBias = 0.0;
+      // 'relaxed': mostly lowered/drooping, gently swaying in rhythm with walking only,
+      // plus a very rare lazy single wag while idle
+      targetAmp = 0;
+      targetGaitSway = (tailType === 'curled' ? 0.032 : 0.055) * moveBlend * strideScale;
+      if (tailType === 'curled') {
+        targetLift = -0.24;
+        targetCurlScale = 0.86;
+      } else if (tailType === 'short') {
+        targetLift = -0.26;
+        targetCurlScale = 0.90;
+      } else {
+        targetLift = Math.min(-0.28, -0.44 - na.tailBaseX * 0.58);
+        targetCurlScale = 0.45;
+      }
+
+      if (moveBlend < 0.2 && this._singleWagProgress < 0) {
+        this._tailBurstTimer -= dt;
+        if (this._tailBurstTimer <= 0) {
+          this._tailBurstTimer = 7.0 + Math.random() * 10.0;
+          const lazyAmp = tailType === 'curled' ? 0.055 : 0.085;
+          this._triggerSingleWag(lazyAmp, 0.78 + Math.random() * 0.25);
+        }
+      }
     }
 
     // Streamline tail horizontally during full gallop for aerodynamic balance
     if (wGallop > 0.1) {
-      liftBias = THREE.MathUtils.lerp(liftBias, -na.tailBaseX + 0.05, wGallop * 0.75);
-      wagAmp *= (1.0 - wGallop * 0.65);
+      targetLift = THREE.MathUtils.lerp(targetLift, -na.tailBaseX + 0.05, wGallop * 0.75);
+      targetAmp *= (1.0 - wGallop * 0.65);
+      targetGaitSway *= (1.0 - wGallop * 0.70);
     }
 
-    this._tailPhase += dt * wagFreq * Math.PI * 2;
+    // Smoothly interpolate all tail parameters so speed, width, and height never jump abruptly
+    this._tailFreq = damp(this._tailFreq, targetFreq, 2.4, dt);
+    this._tailAmp = damp(this._tailAmp, targetAmp, 2.8, dt);
+    this._tailGaitSway = damp(this._tailGaitSway, targetGaitSway, 4.0, dt);
+    this._tailLift = damp(this._tailLift, targetLift, 2.8, dt);
+    this._tailCurlScale = damp(this._tailCurlScale, targetCurlScale, 3.0, dt);
+    this._tailSegExtra = damp(this._tailSegExtra, targetSegExtra, 3.0, dt);
+
+    this._tailPhase += dt * this._tailFreq * Math.PI * 2;
     const tails = [j.tail1, j.tail2, j.tail3, j.tail4, j.tail5];
 
     // Shake wave propagates cleanly into tail
@@ -1472,20 +1649,36 @@ export class DogAnimator {
       // Travelling wave along tail segments for organic whip/plume feel
       const phaseLag = i * 0.44;
       const segWeight = i === 0 ? 1.0 : (0.52 + i * 0.08);
-      const wagYaw = Math.sin(this._tailPhase - phaseLag) * wagAmp * segWeight;
+
+      let wagYaw = Math.sin(this._tailPhase - phaseLag) * this._tailAmp * segWeight;
+
+      // Walking-stride subtle sway in relaxed mode
+      if (this._tailGaitSway > 0.0005) {
+        wagYaw += Math.sin(this._gaitPhase * Math.PI * 2 - i * 0.36) * this._tailGaitSway * segWeight;
+      }
+
+      // Smooth one-shot single wag ("ひと振り")
+      if (this._singleWagProgress >= 0 && this._singleWagAmp > 0.001) {
+        const uSeg = THREE.MathUtils.clamp(this._singleWagProgress - i * 0.04, 0, 1);
+        wagYaw += Math.sin(uSeg * Math.PI * 2) * Math.sin(uSeg * Math.PI) * this._singleWagAmp * this._singleWagDir * segWeight;
+      }
+
+      // Rare single sleep thump ("パタッ")
+      if (sleepThump > 0.001) {
+        wagYaw += sleepThump * 0.11 * this._sleepThumpDir * segWeight;
+      }
+
       const shakeRoll = isShake ? Math.sin(shakeW - i * 0.45) * 0.26 : 0;
 
       if (i === 0) {
-        const pitchBase = na.tailBaseX + s.tailBaseX + liftBias;
+        const pitchBase = na.tailBaseX + s.tailBaseX + this._tailLift + sleepThump * 0.07;
         tj.rotation.set(
           THREE.MathUtils.clamp(pitchBase, -1.25, 1.35),
           s.tailBaseY + wagYaw,
           shakeRoll
         );
       } else {
-        // Curled tails relax their curl slightly when tucked or sleeping
-        const curlScale = this._tailMode === 'tucked' ? 0.15 : (isSleep ? 0.55 : 1.0);
-        const segPitch = na.tailSegX * curlScale + s.tailSegX + (this._tailMode === 'tucked' ? -0.18 : 0);
+        const segPitch = na.tailSegX * this._tailCurlScale + s.tailSegX + this._tailSegExtra + sleepThump * 0.025;
         tj.rotation.set(
           segPitch,
           wagYaw * 0.72 + s.tailCurlYaw,

@@ -5,7 +5,7 @@ import { BREEDS, getBreedById } from './breeds.js';
 // Procedural Canvas Textures (Eye Iris, Wet Nose Leather)
 // ============================================================================
 
-function createIrisTexture(eyeColorHex) {
+function createIrisTexture(eyeColorHex, isHusky = false) {
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -15,53 +15,59 @@ function createIrisTexture(eyeColorHex) {
   const cy = size * 0.5;
 
   const base = new THREE.Color(eyeColorHex);
-  const dark = base.clone().multiplyScalar(0.26);
-  const mid = base.clone();
-  const bright = base.clone().lerp(new THREE.Color('#ffeed0'), 0.34);
+  const darkOuterHex = isHusky ? '#090b0f' : '#080504';
+  const limbalHex = isHusky ? '#0b1826' : '#060303';
 
-  // Deep pigmented canine eye margin (dogs show almost no sclera)
-  ctx.fillStyle = '#0d0908';
+  const dark = isHusky
+    ? new THREE.Color('#133552')
+    : base.clone().multiplyScalar(0.30);
+  const mid = isHusky
+    ? base.clone().lerp(new THREE.Color('#2d7fb5'), 0.25)
+    : base.clone().multiplyScalar(0.86);
+  const warm = isHusky
+    ? base.clone().lerp(new THREE.Color('#bfe8ff'), 0.22)
+    : base.clone().lerp(new THREE.Color('#7a4018'), 0.22);
+
+  // Entire eyeball base is deep dark pigment (no visible white sclera)
+  ctx.fillStyle = darkOuterHex;
   ctx.fillRect(0, 0, size, size);
 
-  // Very subtle outer scleral rim far outside iris
-  const scleraGrad = ctx.createRadialGradient(cx, cy, size * 0.41, cx, cy, size * 0.50);
-  scleraGrad.addColorStop(0, '#140f0c');
-  scleraGrad.addColorStop(0.7, '#3d332b');
-  scleraGrad.addColorStop(1, '#9a8f84');
-  ctx.fillStyle = scleraGrad;
+  // Outer limbal ring smoothly blending iris edge into dark eyeball
+  const limbalGrad = ctx.createRadialGradient(cx, cy, size * 0.33, cx, cy, size * 0.43);
+  limbalGrad.addColorStop(0.0, limbalHex);
+  limbalGrad.addColorStop(0.65, darkOuterHex);
+  limbalGrad.addColorStop(1.0, darkOuterHex);
+  ctx.fillStyle = limbalGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.50, 0, Math.PI * 2);
+  ctx.arc(cx, cy, size * 0.43, 0, Math.PI * 2);
   ctx.fill();
 
-  // Crisp dark limbal ring framing the iris
-  ctx.fillStyle = '#080504';
-  ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.44, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Rich glossy canine iris gradient
-  const irisGrad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.42);
-  irisGrad.addColorStop(0.0, '#' + bright.getHexString());
-  irisGrad.addColorStop(0.36, '#' + mid.getHexString());
-  irisGrad.addColorStop(0.80, '#' + dark.getHexString());
-  irisGrad.addColorStop(1.0, '#070504');
+  // Wide canine iris filling almost the entire visible eye opening
+  const irisR = size * 0.37;
+  const pupilR = size * (isHusky ? 0.135 : 0.165);
+  const irisGrad = ctx.createRadialGradient(cx, cy, pupilR * 0.85, cx, cy, irisR);
+  irisGrad.addColorStop(0.0, '#' + warm.getHexString());
+  irisGrad.addColorStop(0.32, '#' + mid.getHexString());
+  irisGrad.addColorStop(0.76, '#' + dark.getHexString());
+  irisGrad.addColorStop(0.94, limbalHex);
+  irisGrad.addColorStop(1.0, darkOuterHex);
   ctx.fillStyle = irisGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.42, 0, Math.PI * 2);
+  ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Radial iris fibers for organic depth
+  // Subtle radial iris fibers for natural organic depth
   ctx.save();
   ctx.translate(cx, cy);
-  for (let i = 0; i < 150; i++) {
-    const a = (i / 150) * Math.PI * 2 + Math.sin(i * 17.3) * 0.03;
-    const innerR = size * (0.18 + (i % 5) * 0.008);
-    const outerR = size * (0.36 + Math.sin(i * 5.7) * 0.042);
+  for (let i = 0; i < 140; i++) {
+    const a = (i / 140) * Math.PI * 2 + Math.sin(i * 17.3) * 0.03;
+    const innerR = pupilR * (0.95 + (i % 5) * 0.04);
+    const outerR = irisR * (0.82 + Math.sin(i * 5.7) * 0.10);
     const isLight = i % 3 === 0;
     ctx.strokeStyle = isLight
-      ? `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.26)`
-      : `rgba(${Math.round(dark.r * 255)}, ${Math.round(dark.g * 255)}, ${Math.round(dark.b * 255)}, 0.34)`;
-    ctx.lineWidth = isLight ? 1.2 : 1.8;
+      ? `rgba(${Math.round(warm.r * 255)}, ${Math.round(warm.g * 255)}, ${Math.round(warm.b * 255)}, ${isHusky ? 0.24 : 0.18})`
+      : `rgba(${Math.round(dark.r * 255)}, ${Math.round(dark.g * 255)}, ${Math.round(dark.b * 255)}, 0.32)`;
+    ctx.lineWidth = isLight ? 1.1 : 1.7;
     ctx.beginPath();
     ctx.moveTo(Math.cos(a) * innerR, Math.sin(a) * innerR);
     ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
@@ -69,55 +75,31 @@ function createIrisTexture(eyeColorHex) {
   }
   ctx.restore();
 
-  // Warm amber bounce crescent on lower iris (refracted sky light)
-  const caustic = ctx.createRadialGradient(cx, cy + size * 0.14, 2, cx, cy + size * 0.14, size * 0.21);
-  caustic.addColorStop(0, `rgba(${Math.round(bright.r * 255)}, ${Math.round(bright.g * 255)}, ${Math.round(bright.b * 255)}, 0.42)`);
+  // Gentle warm/sky bounce on lower iris (no painted white catchlight circles)
+  const caustic = ctx.createRadialGradient(cx, cy + irisR * 0.38, 2, cx, cy + irisR * 0.38, irisR * 0.56);
+  caustic.addColorStop(0, `rgba(${Math.round(warm.r * 255)}, ${Math.round(warm.g * 255)}, ${Math.round(warm.b * 255)}, ${isHusky ? 0.24 : 0.20})`);
   caustic.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = caustic;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.40, 0, Math.PI * 2);
+  ctx.arc(cx, cy, irisR * 0.94, 0, Math.PI * 2);
   ctx.fill();
 
-  // Deep velvety black pupil
-  const pupilGrad = ctx.createRadialGradient(cx, cy, size * 0.14, cx, cy, size * 0.22);
-  pupilGrad.addColorStop(0, '#010102');
-  pupilGrad.addColorStop(0.84, '#030304');
-  pupilGrad.addColorStop(1, 'rgba(8,5,4,0)');
+  // Large deep velvety black pupil
+  const pupilGrad = ctx.createRadialGradient(cx, cy, pupilR * 0.62, cx, cy, pupilR * 1.06);
+  pupilGrad.addColorStop(0.0, '#010102');
+  pupilGrad.addColorStop(0.84, '#020203');
+  pupilGrad.addColorStop(1.0, 'rgba(5,3,2,0)');
   ctx.fillStyle = pupilGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, size * 0.22, 0, Math.PI * 2);
+  ctx.arc(cx, cy, pupilR * 1.06, 0, Math.PI * 2);
   ctx.fill();
 
-  // Subtle upper eyelid shadow across top of iris
-  const topShadow = ctx.createLinearGradient(0, cy - size * 0.44, 0, cy + size * 0.02);
-  topShadow.addColorStop(0, 'rgba(0,0,0,0.52)');
+  // Soft upper eyelid shadow across top of iris
+  const topShadow = ctx.createLinearGradient(0, cy - irisR, 0, cy + irisR * 0.08);
+  topShadow.addColorStop(0, 'rgba(0,0,0,0.50)');
   topShadow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = topShadow;
   ctx.fillRect(0, 0, size, size);
-
-  // Crisp wet specular sky catchlights so eyes always sparkle alive from every angle
-  ctx.save();
-  ctx.translate(cx - size * 0.11, cy - size * 0.11);
-  ctx.rotate(-0.35);
-  const hl1 = ctx.createRadialGradient(0, 0, 1, 0, 0, size * 0.085);
-  hl1.addColorStop(0.0, 'rgba(255, 255, 255, 0.98)');
-  hl1.addColorStop(0.55, 'rgba(245, 250, 255, 0.85)');
-  hl1.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
-  ctx.fillStyle = hl1;
-  ctx.scale(1.15, 0.82);
-  ctx.beginPath();
-  ctx.arc(0, 0, size * 0.085, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // Secondary tiny wet tear-glint dot on opposite lower edge
-  const hl2 = ctx.createRadialGradient(cx + size * 0.12, cy + size * 0.13, 0.5, cx + size * 0.12, cy + size * 0.13, size * 0.036);
-  hl2.addColorStop(0.0, 'rgba(255, 255, 255, 0.80)');
-  hl2.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
-  ctx.fillStyle = hl2;
-  ctx.beginPath();
-  ctx.arc(cx + size * 0.12, cy + size * 0.13, size * 0.036, 0, Math.PI * 2);
-  ctx.fill();
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -1157,24 +1139,29 @@ function buildNoseMesh(breed, noseMat, disposables) {
   return group;
 }
 
-function buildEyeAssembly(breed, side, irisMat, corneaMat, rimMat, eyelidMat, disposables) {
+function buildEyeAssembly(breed, side, irisMat, rimMat, eyelidMat, disposables) {
   const hs = breed.headSize;
   const r = hs * (breed.id === 'poodle' ? 0.168 : breed.id === 'dachshund' ? 0.154 : 0.156);
 
   const eyePivot = new THREE.Group();
 
-  // Inner iris sphere (textured with rich iris + black pupil + wet catchlights centered on +Z)
-  const irisGeo = new THREE.SphereGeometry(r, 20, 16);
+  // Dark wet eyeball with seamless angular UV mapping (dark iris + large black pupil on +Z, dark base everywhere)
+  const irisGeo = new THREE.SphereGeometry(r, 24, 18);
   const pos = irisGeo.getAttribute('position');
   const uv = irisGeo.getAttribute('uv');
   for (let i = 0; i < pos.count; i++) {
     const px = pos.getX(i) / r;
     const py = pos.getY(i) / r;
-    const pz = pos.getZ(i) / r;
-    if (pz >= -0.1) {
-      uv.setXY(i, 0.5 + px * 0.50, 0.5 + py * 0.50);
+    const pz = THREE.MathUtils.clamp(pos.getZ(i) / r, -1, 1);
+    const theta = Math.acos(pz); // 0 at +Z front center, PI/2 at equator
+    const rad = Math.min(0.495, (theta / (Math.PI * 0.5)) * 0.495);
+    const xyLen = Math.hypot(px, py);
+    if (xyLen > 1e-5) {
+      uv.setXY(i, 0.5 + (px / xyLen) * rad, 0.5 + (py / xyLen) * rad);
+    } else if (pz >= 0) {
+      uv.setXY(i, 0.5, 0.5);
     } else {
-      uv.setXY(i, 0.02, 0.02);
+      uv.setXY(i, 0.995, 0.5);
     }
   }
   uv.needsUpdate = true;
@@ -1182,29 +1169,22 @@ function buildEyeAssembly(breed, side, irisMat, corneaMat, rimMat, eyelidMat, di
   const eyeMesh = new THREE.Mesh(irisGeo, irisMat);
   eyePivot.add(eyeMesh);
 
-  // Outer wet glossy cornea dome for sharp live sky/sun specular reflections
-  const corneaGeo = new THREE.SphereGeometry(r * 1.055, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.58);
-  corneaGeo.rotateX(Math.PI * 0.5);
-  const corneaMesh = new THREE.Mesh(corneaGeo, corneaMat);
-  corneaMesh.renderOrder = 3;
-  eyePivot.add(corneaMesh);
-
-  // Bold jet-black pigmented canine eyelid rim ("eyeliner") stays fixed to skull while eyeball tracks
+  // Crisp jet-black pigmented canine eyelid rim ("eyeliner") fixed to skull while eyeball tracks
   const isAlmond = breed.id === 'shiba' || breed.id === 'husky' || breed.id === 'corgi';
-  const rimGeo = new THREE.TorusGeometry(r * 1.02, r * 0.21, 10, 22);
-  rimGeo.scale(isAlmond ? 1.15 : 1.08, isAlmond ? 0.86 : 0.92, 0.84);
+  const rimGeo = new THREE.TorusGeometry(r * 0.98, r * 0.17, 10, 24);
+  rimGeo.scale(isAlmond ? 1.14 : 1.08, isAlmond ? 0.85 : 0.92, 0.85);
   const rimMesh = new THREE.Mesh(rimGeo, rimMat);
-  rimMesh.position.z = r * 0.22;
+  rimMesh.position.z = r * 0.25;
   rimMesh.rotation.z = side * (isAlmond ? 0.15 : 0.04);
 
-  // Upper eyelid shell for smooth natural blinking
+  // Upper eyelid shell matched to surrounding fur color for smooth natural blinking
   const eyelidPivot = new THREE.Group();
-  const lidGeo = new THREE.SphereGeometry(r * 1.16, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.54);
+  const lidGeo = new THREE.SphereGeometry(r * 1.13, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
   const lidMesh = new THREE.Mesh(lidGeo, eyelidMat);
-  lidMesh.rotation.x = -0.92; // Tucked cleanly above eyeball when open
+  lidMesh.rotation.x = -1.02; // Tucked naturally above eyeball when open
   eyelidPivot.add(lidMesh);
 
-  disposables.geometries.push(irisGeo, corneaGeo, rimGeo, lidGeo);
+  disposables.geometries.push(irisGeo, rimGeo, lidGeo);
   return { eyePivot, eyeMesh, rimMesh, eyelidPivot };
 }
 
@@ -1345,32 +1325,26 @@ export function buildDog(breedInput) {
     bumpScale: 0.0016,
   });
 
-  const irisTex = createIrisTexture(breed.eyeColor);
-  const irisMat = new THREE.MeshStandardMaterial({
+  const irisTex = createIrisTexture(breed.eyeColor, breed.id === 'husky');
+  const irisMat = new THREE.MeshPhysicalMaterial({
     map: irisTex,
-    roughness: 0.08,
-    metalness: 0.0,
-  });
-  const corneaMat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.01,
+    roughness: 0.22,
     metalness: 0.0,
-    transmission: 0.0,
-    transparent: true,
-    opacity: 0.34,
+    ior: 1.5,
+    reflectivity: 0.85,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.01,
-    reflectivity: 1.0,
-    envMapIntensity: 2.6,
-    depthWrite: false,
+    clearcoatRoughness: 0.035,
+    envMapIntensity: 0.65,
   });
   // Crisp jet-black pigmented canine eyeliner
   const eyeRimMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color('#090707'),
-    roughness: 0.24,
+    color: new THREE.Color('#070505'),
+    roughness: 0.30,
     metalness: 0.0,
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.25,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.28,
+    envMapIntensity: 0.55,
   });
   // Dark pigmented moist canine lip line
   const lipMat = new THREE.MeshPhysicalMaterial({
@@ -1380,9 +1354,14 @@ export function buildDog(breedInput) {
     clearcoat: 0.50,
     clearcoatRoughness: 0.24,
   });
+  // Eyelid matches surrounding facial fur color (mask: white, tricolor: tan, others: primary)
+  const eyelidColorHex = (breed.pattern === 'mask' || breed.pattern === 'tricolor')
+    ? breed.secondaryColor
+    : breed.primaryColor;
   const eyelidMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(breed.pattern === 'mask' ? breed.secondaryColor : breed.primaryColor),
-    roughness: 0.85,
+    color: new THREE.Color(eyelidColorHex).multiplyScalar(0.88),
+    roughness: 0.90,
+    metalness: 0.0,
   });
   const innerEarMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color('#d4a294').lerp(new THREE.Color(breed.secondaryColor), 0.30),
@@ -1414,7 +1393,7 @@ export function buildDog(breedInput) {
 
   disposables.textures.push(noseBumpTex, irisTex);
   disposables.materials.push(
-    noseMat, irisMat, corneaMat, eyeRimMat, lipMat, eyelidMat,
+    noseMat, irisMat, eyeRimMat, lipMat, eyelidMat,
     innerEarMat, padMat, mouthMat, tongueMat, toothMat, whiskerMat
   );
 
@@ -1733,18 +1712,18 @@ export function buildDog(breedInput) {
   disposables.geometries.push(tongueGeo);
 
   // Expressive Wet Eyes with Crisp Black Eyeliner (visible from front and side views)
-  const leftEye = buildEyeAssembly(breed, 1, irisMat, corneaMat, eyeRimMat, eyelidMat, disposables);
+  const leftEye = buildEyeAssembly(breed, 1, irisMat, eyeRimMat, eyelidMat, disposables);
   const leftSocket = new THREE.Group();
   leftSocket.position.set(eyeX, eyeY, eyeZ);
-  leftSocket.rotation.y = 0.34;
+  leftSocket.rotation.y = 0.28;
   leftSocket.add(leftEye.rimMesh, leftEye.eyePivot, leftEye.eyelidPivot);
   leftEye.eyelidPivot.name = 'eyelidL';
   head.add(leftSocket);
 
-  const rightEye = buildEyeAssembly(breed, -1, irisMat, corneaMat, eyeRimMat, eyelidMat, disposables);
+  const rightEye = buildEyeAssembly(breed, -1, irisMat, eyeRimMat, eyelidMat, disposables);
   const rightSocket = new THREE.Group();
   rightSocket.position.set(-eyeX, eyeY, eyeZ);
-  rightSocket.rotation.y = -0.34;
+  rightSocket.rotation.y = -0.28;
   rightSocket.add(rightEye.rimMesh, rightEye.eyePivot, rightEye.eyelidPivot);
   rightEye.eyelidPivot.name = 'eyelidR';
   head.add(rightSocket);

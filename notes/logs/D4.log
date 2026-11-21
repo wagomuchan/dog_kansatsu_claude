@@ -1,0 +1,4 @@
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): 時間遷移付きしっぽ制御を追加し、普段の散歩・匂い嗅ぎ・待機・睡眠・鳥への忍び寄りは `'relaxed'`、発見・ごはん・遊び始め・カメラ注視時のみ数秒 `'happyWag'`→`'wag'`→`'relaxed'` へ戻し、雨天・空皿・不快時は `'down'`、強い雨風や避難時は `'tucked'` に切り替え。
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): 犬種の体長に応じた安全マージン（`体長/2 + 0.15m`）で `garden.isInside` を使い、行き先が障害物内なら近傍の歩ける点へ補正、前方0.3〜1.5m（高速時はさらに先）の複数点と左右ウィスカーで障害物を検知して左右ステアリング回避。
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): 直線経路が詰まった際に障害物の左右を回る迂回点を生成し、約2.8秒以上進めない場合は行き先を選び直す（追尾・ボール遊び・ぐるぐる回転でも障害物回避と詰まり脱出を適用）。
+- [dog.js](file:///home/user/dog_kansatsu_claude/src/dog/dog.js): 体長ベースの `bodyMargin` を犬種変更時も含めて同期し、最終防衛として移動先・中間点が歩けない場合はそのフレームの移動を取り消してめり込みを防ぎつつ回避方向へ旋回し、brain へ詰まり情報を通知。

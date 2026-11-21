@@ -31,16 +31,37 @@ function getGroundY(garden, x, z) {
   return 0;
 }
 
+function computeBodyMargin(breed) {
+  const bodyLen = (typeof breed?.bodyLength === 'number' && Number.isFinite(breed.bodyLength))
+    ? breed.bodyLength
+    : ((typeof breed?.body?.length === 'number' && Number.isFinite(breed.body.length)) ? breed.body.length : 0.5);
+  return clamp(bodyLen * 0.5 + 0.15, 0.28, 0.65);
+}
+
 function isWalkable(garden, x, z, margin = 0.4) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
   if (Math.abs(x) > 14.7 || Math.abs(z) > 14.7) return false;
   if (garden && typeof garden.isInside === 'function') {
     return Boolean(garden.isInside(x, z, margin));
   }
-  return Math.abs(x) < 14.2 && Math.abs(z) < 14.2;
+  return Math.abs(x) < 14.2 - margin && Math.abs(z) < 14.2 - margin;
 }
 
-function findSpawnPoint(garden) {
+function findNearestWalkable(garden, x, z, margin) {
+  if (isWalkable(garden, x, z, margin)) return { x, z };
+  for (let r = 0.25; r <= 4.0; r += 0.35) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * TWO_PI;
+      const nx = x + Math.sin(a) * r;
+      const nz = z + Math.cos(a) * r;
+      if (isWalkable(garden, nx, nz, margin)) return { x: nx, z: nz };
+    }
+  }
+  return null;
+}
+
+function findSpawnPoint(garden, margin = 0.55) {
+  const safeMargin = Math.max(0.65, margin + 0.1);
   const preferred = [
     { x: 0.5, z: 2.2 },
     { x: -1.5, z: 1.5 },
@@ -49,11 +70,15 @@ function findSpawnPoint(garden) {
   ];
   for (let i = 0; i < preferred.length; i++) {
     const p = preferred[i];
-    if (isWalkable(garden, p.x, p.z, 0.65)) return p;
+    if (isWalkable(garden, p.x, p.z, safeMargin)) return p;
   }
   if (garden && typeof garden.randomWalkablePoint === 'function') {
-    const pt = garden.randomWalkablePoint();
-    if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.z)) return { x: pt.x, z: pt.z };
+    for (let i = 0; i < 8; i++) {
+      const pt = garden.randomWalkablePoint();
+      if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.z) && isWalkable(garden, pt.x, pt.z, margin)) {
+        return { x: pt.x, z: pt.z };
+      }
+    }
   }
   return { x: 0, z: 2 };
 }
@@ -96,12 +121,15 @@ export class Dog {
     this.scene = scene;
     this.garden = garden;
     this.breed = breed;
+    this.bodyMargin = computeBodyMargin(breed);
 
-    const spawn = findSpawnPoint(garden);
+    const spawn = findSpawnPoint(garden, this.bodyMargin);
     this.position = new THREE.Vector3(spawn.x, getGroundY(garden, spawn.x, spawn.z), spawn.z);
     this.heading = 0.25;
     this.speed = 0;
     this._angularVel = 0;
+    this._blockedLastFrame = false;
+    this._escapeSide = 1;
 
     // Terrain alignment & dynamic body tilt
     this._pitch = 0;
@@ -201,7 +229,19 @@ export class Dog {
     oldBody?.dispose?.();
 
     this.breed = newBreed;
+    this.bodyMargin = computeBodyMargin(newBreed);
     this.brain.setBreed(newBreed);
+
+    // If switching to a larger breed put the dog too close to an obstacle, nudge to nearest walkable point
+    if (!this.brain._insideDoghouse && !isWalkable(this.garden, this.position.x, this.position.z, this.bodyMargin)) {
+      const safe = findNearestWalkable(this.garden, this.position.x, this.position.z, this.bodyMargin);
+      if (safe) {
+        this.position.x = safe.x;
+        this.position.z = safe.z;
+        this.position.y = getGroundY(this.garden, safe.x, safe.z) + this._jumpHeight;
+      }
+    }
+
     this._mountBody(newBreed);
   }
 
@@ -251,6 +291,7 @@ export class Dog {
         dirtiness: this.dirtiness,
         heatLoad: this.heatLoad,
         inShelter: this.inShelter,
+        blocked: this._blockedLastFrame,
       },
       cameraPos,
       animator: this.animator,
@@ -277,8 +318,62 @@ export class Dog {
     this._applyAdditiveJoints(dt, brainOut.motionEffects);
   }
 
+  _isPositionWalkable(garden, x, z, allowDoghouseInterior) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+    if (Math.abs(x) > 14.6 || Math.abs(z) > 14.6) return false;
+    if (allowDoghouseInterior) {
+      const dhIn = garden?.poi?.doghouseInside;
+      const dhOut = garden?.poi?.doghouse;
+      const nearIn = dhIn && Math.hypot(x - dhIn.x, z - dhIn.z) < 2.35;
+      const nearOut = dhOut && Math.hypot(x - dhOut.x, z - dhOut.z) < 2.35;
+      if (nearIn || nearOut) return true;
+    }
+    return isWalkable(garden, x, z, this.bodyMargin);
+  }
+
+  _pickEscapeHeading(garden, x, z, heading, allowInterior) {
+    const stepOffsets = [0.45, 0.9, 1.35, 1.8, 2.3, Math.PI];
+    const probeDists = [0.35, 0.75, 1.2];
+    const sides = [this._escapeSide, -this._escapeSide];
+
+    let bestAngle = wrapAngle(heading + this._escapeSide * 1.15);
+    let bestScore = -Infinity;
+    let chosenSide = this._escapeSide;
+
+    for (let i = 0; i < stepOffsets.length; i++) {
+      const off = stepOffsets[i];
+      for (let s = 0; s < sides.length; s++) {
+        const side = sides[s];
+        const cand = wrapAngle(heading + side * off);
+        const sx = Math.sin(cand);
+        const sz = Math.cos(cand);
+        let clearCount = 0;
+        for (let d = 0; d < probeDists.length; d++) {
+          if (this._isPositionWalkable(garden, x + sx * probeDists[d], z + sz * probeDists[d], allowInterior)) {
+            clearCount++;
+          } else {
+            break;
+          }
+        }
+        if (clearCount === 0) continue;
+        const score = clearCount * 2.5 - off * 0.55 + (side === this._escapeSide ? 0.2 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          bestAngle = cand;
+          chosenSide = side;
+        }
+      }
+      if (bestScore >= probeDists.length * 2.5 - off * 0.55) break;
+    }
+
+    this._escapeSide = chosenSide;
+    return bestAngle;
+  }
+
   _integrateLocomotion(dt, garden, loco, fx) {
     const prevHeading = this.heading;
+    const allowInterior = Boolean(loco.allowDoghouseInterior);
+    this._blockedLastFrame = false;
 
     if (loco.mode === 'move' || loco.mode === 'circle') {
       const targetSpeed = Math.max(0, loco.targetSpeed || 0);
@@ -302,45 +397,61 @@ export class Dog {
       this.speed = Math.max(0, this.speed - 6.8 * dt);
     }
 
-    const dHeading = wrapAngle(this.heading - prevHeading);
-    this._angularVel = lerp(this._angularVel, dHeading / dt, clamp(dt * 8, 0, 1));
-
-    // Advance position with smooth obstacle sliding
+    // Final defense: advance position only if walkable; cancel move & turn away if blocked (no clipping!)
     if (this.speed > 0.005) {
+      const prevX = this.position.x;
+      const prevZ = this.position.z;
       const stepDist = this.speed * dt;
       const dx = Math.sin(this.heading) * stepDist;
       const dz = Math.cos(this.heading) * stepDist;
-      const nx = this.position.x + dx;
-      const nz = this.position.z + dz;
+      const midX = prevX + dx * 0.5;
+      const midZ = prevZ + dz * 0.5;
+      const nx = prevX + dx;
+      const nz = prevZ + dz;
 
-      if (loco.allowDoghouseInterior || isWalkable(garden, nx, nz, 0.36)) {
+      const destWalkable =
+        this._isPositionWalkable(garden, midX, midZ, allowInterior) &&
+        this._isPositionWalkable(garden, nx, nz, allowInterior);
+
+      if (destWalkable) {
         this.position.x = nx;
         this.position.z = nz;
       } else {
-        // Try sliding smoothly along tangent directions around obstacle
-        let slid = false;
-        const slideAngles = [0.45, -0.45, 0.9, -0.9, 1.35, -1.35];
-        for (let i = 0; i < slideAngles.length; i++) {
-          const sa = this.heading + slideAngles[i];
-          const sx = this.position.x + Math.sin(sa) * stepDist * 0.72;
-          const sz = this.position.z + Math.cos(sa) * stepDist * 0.72;
-          if (isWalkable(garden, sx, sz, 0.36)) {
-            this.position.x = sx;
-            this.position.z = sz;
-            this.speed *= 0.85;
-            slid = true;
-            break;
+        // Cancel this frame's movement and turn smoothly away from the obstacle
+        this._blockedLastFrame = true;
+        this.position.x = prevX;
+        this.position.z = prevZ;
+        this.speed = Math.min(this.speed * 0.25, 0.3);
+
+        // If somehow already slightly inside an unwalkable margin, steer back toward nearest safe point
+        if (!allowInterior && !this._isPositionWalkable(garden, prevX, prevZ, false)) {
+          const safe = findNearestWalkable(garden, prevX, prevZ, this.bodyMargin);
+          if (safe) {
+            const rx = safe.x - prevX;
+            const rz = safe.z - prevZ;
+            const rd = Math.hypot(rx, rz) || 1;
+            const pull = Math.min(rd, Math.max(0.06, dt * 1.4));
+            this.position.x = prevX + (rx / rd) * pull;
+            this.position.z = prevZ + (rz / rd) * pull;
+            const outAngle = Math.atan2(rx, rz);
+            const diff = wrapAngle(outAngle - this.heading);
+            this.heading = wrapAngle(this.heading + clamp(diff, -5.5 * dt, 5.5 * dt));
           }
-        }
-        if (!slid) {
-          this.speed *= 0.4;
+        } else {
+          const escapeHeading = this._pickEscapeHeading(garden, prevX, prevZ, this.heading, allowInterior);
+          const diff = wrapAngle(escapeHeading - this.heading);
+          const maxEscapeTurn = Math.max(0.32, 6.2 * dt);
+          this.heading = wrapAngle(this.heading + clamp(diff, -maxEscapeTurn, maxEscapeTurn));
         }
       }
     }
 
+    const dHeading = wrapAngle(this.heading - prevHeading);
+    this._angularVel = lerp(this._angularVel, dHeading / dt, clamp(dt * 8, 0, 1));
+
     // Clamp to outer yard bounds as final safety net
-    this.position.x = clamp(this.position.x, -14.75, 14.75);
-    this.position.z = clamp(this.position.z, -14.75, 14.75);
+    this.position.x = clamp(this.position.x, -14.6, 14.6);
+    this.position.z = clamp(this.position.z, -14.6, 14.6);
 
     // Ground height & jump arc
     const groundY = getGroundY(garden, this.position.x, this.position.z);
