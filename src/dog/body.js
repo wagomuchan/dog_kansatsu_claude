@@ -184,6 +184,9 @@ vCoatCoord = aCoatCoord;
 vFurScale = aFurScale;
 vCombDir = aCombDir;
 
+float furNLen = length(objectNormal);
+vec3 furNDir = furNLen > 0.0001 ? (objectNormal / furNLen) : vec3(0.0, 1.0, 0.0);
+
 if (aShellHeight > 0.0001) {
   float h = aShellHeight;
   float hPow = pow(h, 1.35);
@@ -191,8 +194,11 @@ if (aShellHeight > 0.0001) {
   float wetCompress = mix(1.0, 0.58, uWetness);
   float localLen = uFurLength * aFurScale * wetCompress;
 
-  vec3 nDir = normalize(objectNormal);
+  vec3 nDir = furNDir;
   vec3 combVec = aCombDir;
+  #ifdef USE_SKINNING
+    combVec = (skinMatrix * vec4(combVec, 0.0)).xyz;
+  #endif
   float combLen = length(combVec);
   if (combLen > 0.0001) combVec /= combLen;
 
@@ -244,7 +250,9 @@ if (aShellHeight > 0.0001) {
   transformed += disp;
 }
 
-vWorldNormalFur = normalize(mat3(modelMatrix) * objectNormal);
+vec3 furWorldN = mat3(modelMatrix) * furNDir;
+float furWorldNLen = length(furWorldN);
+vWorldNormalFur = furWorldNLen > 0.0001 ? (furWorldN / furWorldNLen) : vec3(0.0, 1.0, 0.0);
 vWorldPosFur = (modelMatrix * vec4(transformed, 1.0)).xyz;
 `;
 
@@ -622,14 +630,14 @@ function createFurMaterial(uniforms, isShell, breed) {
     depthWrite: !isShell,
   });
 
-  mat.customProgramCacheKey = () => (isShell ? 'dog-shell-fur-v3' : 'dog-base-fur-v3');
+  mat.customProgramCacheKey = () => (isShell ? 'dog-shell-fur-v4' : 'dog-base-fur-v4');
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.uniforms.uIsShell = { value: isShell ? 1.0 : 0.0 };
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${FUR_VERTEX_PREAMBLE}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${FUR_VERTEX_DISPLACE}`);
+      .replace('#include <skinning_vertex>', `#include <skinning_vertex>\n${FUR_VERTEX_DISPLACE}`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${FUR_FRAGMENT_PREAMBLE}`)
@@ -800,9 +808,404 @@ function createOrganicLoft(sections, radialSegs, bodyTransformFn) {
   return geo;
 }
 
+const IDENTITY_MAT4 = new THREE.Matrix4();
+
+function smoothstep01(edge0, edge1, x) {
+  const denom = edge1 - edge0;
+  if (denom <= 1e-6) return x >= edge1 ? 1.0 : 0.0;
+  const t = THREE.MathUtils.clamp((x - edge0) / denom, 0.0, 1.0);
+  return t * t * (3.0 - 2.0 * t);
+}
+
+function lerpOpt(a, b, t, fallback = 0) {
+  const va = a !== undefined ? a : fallback;
+  const vb = b !== undefined ? b : fallback;
+  return va + (vb - va) * t;
+}
+
+/**
+ * Resamples anatomical control stations along a smooth centripetal Catmull-Rom curve.
+ * Returns { rings, stationRingIndex, arcLengths }.
+ */
+function resampleSections(stations, subsPerSpan = 2) {
+  const n = stations.length;
+  const pts = stations.map((s) => new THREE.Vector3(s.pos[0], s.pos[1], s.pos[2]));
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
+
+  const rings = [];
+  const stationRingIndex = new Array(n);
+  const tmpP = new THREE.Vector3();
+
+  for (let k = 0; k < n - 1; k++) {
+    const subs = Array.isArray(subsPerSpan) ? subsPerSpan[k] : subsPerSpan;
+    const s0 = stations[k];
+    const s1 = stations[k + 1];
+    stationRingIndex[k] = rings.length;
+
+    const steps = Math.max(1, subs);
+    const limit = k === n - 2 ? steps : steps - 1;
+    for (let j = 0; j <= limit; j++) {
+      const f = j / steps;
+      const u = (k + f) / (n - 1);
+      curve.getPoint(u, tmpP);
+
+      const ring = {
+        pos: [tmpP.x, tmpP.y, tmpP.z],
+        rx: lerpOpt(s0.rx, s1.rx, f, 0.01),
+        ry: lerpOpt(s0.ry, s1.ry, f, 0.01),
+        topFlat: lerpOpt(s0.topFlat, s1.topFlat, f, 0),
+        bottomFlat: lerpOpt(s0.bottomFlat, s1.bottomFlat, f, 0),
+        bottomPinch: lerpOpt(s0.bottomPinch, s1.bottomPinch, f, 0),
+        sideShiftY: lerpOpt(s0.sideShiftY, s1.sideShiftY, f, 0),
+        furScale: lerpOpt(s0.furScale, s1.furScale, f, 1.0),
+        coatZ: lerpOpt(s0.coatZ, s1.coatZ, f, 0.0),
+        coatYCenter: lerpOpt(s0.coatYCenter, s1.coatYCenter, f, 0.65),
+        coatYSpan: lerpOpt(s0.coatYSpan, s1.coatYSpan, f, 0.25),
+        coatXOffset: lerpOpt(s0.coatXOffset, s1.coatXOffset, f, 0.0),
+        coatXSpan: lerpOpt(s0.coatXSpan, s1.coatXSpan, f, 0.85),
+        coatZone: s0.coatZone !== undefined ? s0.coatZone : 0.0,
+        backFeather: lerpOpt(s0.backFeather, s1.backFeather, f, 0),
+        bottomFeather: lerpOpt(s0.bottomFeather, s1.bottomFeather, f, 0),
+      };
+
+      if (s0.combDir && s1.combDir) {
+        const cx = s0.combDir[0] + (s1.combDir[0] - s0.combDir[0]) * f;
+        const cy = s0.combDir[1] + (s1.combDir[1] - s0.combDir[1]) * f;
+        const cz = s0.combDir[2] + (s1.combDir[2] - s0.combDir[2]) * f;
+        const cl = Math.hypot(cx, cy, cz) || 1;
+        ring.combDir = [cx / cl, cy / cl, cz / cl];
+      } else if (s0.combDir) {
+        ring.combDir = s0.combDir;
+      }
+
+      if (j === 0 && s0.dir) ring.dir = s0.dir;
+      if (j === steps && s1.dir) ring.dir = s1.dir;
+
+      rings.push(ring);
+    }
+  }
+  stationRingIndex[n - 1] = rings.length - 1;
+
+  const arcLengths = new Float32Array(rings.length);
+  arcLengths[0] = 0;
+  for (let i = 1; i < rings.length; i++) {
+    const a = rings[i - 1].pos;
+    const b = rings[i].pos;
+    arcLengths[i] = arcLengths[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  }
+
+  return { rings, stationRingIndex, arcLengths };
+}
+
+/**
+ * Smoothly distributes 2-bone skin weights across each joint boundary along a bone chain.
+ * `jointArcs` has length `numBones - 1` (boundary between bone k and bone k+1).
+ */
+function assignChainWeights(rings, arcLengths, jointArcs, targetBlendWidth = 0.065) {
+  const numJoints = jointArcs.length;
+  const totalLen = arcLengths[arcLengths.length - 1] || 1e-4;
+  const halfWidths = new Float32Array(numJoints);
+
+  for (let k = 0; k < numJoints; k++) {
+    const prevArc = k === 0 ? 0 : jointArcs[k - 1];
+    const nextArc = k === numJoints - 1 ? totalLen : jointArcs[k + 1];
+    const segBefore = Math.max(0.004, jointArcs[k] - prevArc);
+    const segAfter = Math.max(0.004, nextArc - jointArcs[k]);
+    const wantHalf = (Array.isArray(targetBlendWidth) ? targetBlendWidth[k] : targetBlendWidth) * 0.5;
+    halfWidths[k] = Math.min(wantHalf, segBefore * 0.46, segAfter * 0.46);
+  }
+
+  for (let i = 0; i < rings.length; i++) {
+    const s = arcLengths[i];
+    // Find owning bone index
+    let bone = 0;
+    while (bone < numJoints && s >= jointArcs[bone]) {
+      bone++;
+    }
+
+    let b0 = bone;
+    let w0 = 1.0;
+    let b1 = 0;
+    let w1 = 0.0;
+
+    // Check blend with previous bone across joint (bone - 1)
+    if (bone > 0) {
+      const jc = jointArcs[bone - 1];
+      const hw = halfWidths[bone - 1];
+      if (s < jc + hw) {
+        const t = smoothstep01(jc - hw, jc + hw, s);
+        b0 = bone - 1;
+        w0 = 1.0 - t;
+        b1 = bone;
+        w1 = t;
+      }
+    }
+    // Check blend with next bone across joint (bone)
+    if (bone < numJoints && w1 === 0.0) {
+      const jc = jointArcs[bone];
+      const hw = halfWidths[bone];
+      if (s > jc - hw) {
+        const t = smoothstep01(jc - hw, jc + hw, s);
+        b0 = bone;
+        w0 = 1.0 - t;
+        b1 = bone + 1;
+        w1 = t;
+      }
+    }
+
+    rings[i].skinIndices = [b0, b1, 0, 0];
+    rings[i].skinWeights = [w0, w1, 0, 0];
+  }
+}
+
+/**
+ * Smoothly distributes skin weights along a continuous leg:
+ *   Bone 0 = chest/pelvis (torso anchor), Bone 1 = shoulder/hip (abduction),
+ *   Bone 2 = upper, Bone 3 = lower, Bone 4 = paw.
+ */
+function assignLegWeights(rings, arcLengths, sJoint0, sJoint1, sJoint2) {
+  const totalLen = arcLengths[arcLengths.length - 1] || 1e-4;
+  const upperLen = Math.max(0.015, sJoint1 - sJoint0);
+  const lowerLen = Math.max(0.015, sJoint2 - sJoint1);
+  const pawLen = Math.max(0.015, totalLen - sJoint2);
+
+  // 5-7cm smooth blends across every joint (clamped safely for short-legged breeds)
+  const hwHip = Math.min(0.034, upperLen * 0.44);
+  const hwElbow = Math.min(0.035, upperLen * 0.44, lowerLen * 0.44);
+  const hwPaw = Math.min(0.028, lowerLen * 0.44, pawLen * 0.48);
+  const torsoBlendEnd = Math.max(0.008, sJoint0 * 0.88);
+
+  for (let i = 0; i < rings.length; i++) {
+    const s = arcLengths[i];
+
+    if (s <= sJoint0 + hwHip) {
+      // Smoothly transition torso anchor -> shoulder/hip -> upper arm/thigh
+      const fTorso = 1.0 - smoothstep01(0.0, torsoBlendEnd, s);
+      const fUpper = smoothstep01(sJoint0 - hwHip, sJoint0 + hwHip, s);
+      const wTorso = fTorso;
+      const wRoot = (1.0 - fTorso) * (1.0 - fUpper);
+      const wUpper = (1.0 - fTorso) * fUpper;
+      const sum = wTorso + wRoot + wUpper || 1.0;
+      rings[i].skinIndices = [0, 1, 2, 0];
+      rings[i].skinWeights = [wTorso / sum, wRoot / sum, wUpper / sum, 0];
+    } else if (s < sJoint1 - hwElbow) {
+      rings[i].skinIndices = [2, 0, 0, 0];
+      rings[i].skinWeights = [1, 0, 0, 0];
+    } else if (s <= sJoint1 + hwElbow) {
+      const t = smoothstep01(sJoint1 - hwElbow, sJoint1 + hwElbow, s);
+      rings[i].skinIndices = [2, 3, 0, 0];
+      rings[i].skinWeights = [1.0 - t, t, 0, 0];
+    } else if (s < sJoint2 - hwPaw) {
+      rings[i].skinIndices = [3, 0, 0, 0];
+      rings[i].skinWeights = [1, 0, 0, 0];
+    } else if (s <= sJoint2 + hwPaw) {
+      const t = smoothstep01(sJoint2 - hwPaw, sJoint2 + hwPaw, s);
+      rings[i].skinIndices = [3, 4, 0, 0];
+      rings[i].skinWeights = [1.0 - t, t, 0, 0];
+    } else {
+      rings[i].skinIndices = [4, 0, 0, 0];
+      rings[i].skinWeights = [1, 0, 0, 0];
+    }
+  }
+}
+
+/**
+ * Builds a continuous 3D swept tubular BufferGeometry in bind-pose root space
+ * with smooth swept frames (R = +X, U = cross(T, R)), coat coordinates, and skinning attributes.
+ */
+function createSkinnedTube(sections, radialSegs, options = {}) {
+  const numRings = sections.length;
+  const cols = radialSegs + 1;
+  const invertU = Boolean(options.invertU);
+  const autoCombFromTangent = options.autoCombFromTangent || null;
+  const useCoatYSpan = options.useCoatYSpan !== false;
+
+  // Compute smooth unit tangents along the tube centerline
+  const tangents = new Array(numRings);
+  const vPrev = new THREE.Vector3();
+  const vNext = new THREE.Vector3();
+  for (let i = 0; i < numRings; i++) {
+    const s = sections[i];
+    if (s.dir) {
+      tangents[i] = new THREE.Vector3(s.dir[0], s.dir[1], s.dir[2]).normalize();
+      continue;
+    }
+    const p = s.pos;
+    if (i === 0) {
+      const q = sections[1].pos;
+      tangents[i] = new THREE.Vector3(q[0] - p[0], q[1] - p[1], q[2] - p[2]).normalize();
+    } else if (i === numRings - 1) {
+      const q = sections[i - 1].pos;
+      tangents[i] = new THREE.Vector3(p[0] - q[0], p[1] - q[1], p[2] - q[2]).normalize();
+    } else {
+      const p0 = sections[i - 1].pos;
+      const p1 = sections[i + 1].pos;
+      vPrev.set(p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]);
+      vNext.set(p1[0] - p[0], p1[1] - p[1], p1[2] - p[2]);
+      if (vPrev.lengthSq() > 1e-10) vPrev.normalize();
+      if (vNext.lengthSq() > 1e-10) vNext.normalize();
+      const t = vPrev.clone().add(vNext);
+      if (t.lengthSq() < 1e-8) t.copy(vNext.lengthSq() > 1e-8 ? vNext : new THREE.Vector3(0, 0, 1));
+      tangents[i] = t.normalize();
+    }
+  }
+
+  const positions = [];
+  const uvs = [];
+  const bodyPositions = [];
+  const combDirs = [];
+  const furScales = [];
+  const coatCoords = [];
+  const skinIndices = [];
+  const skinWeights = [];
+  const indices = [];
+
+  const R = new THREE.Vector3();
+  const U = new THREE.Vector3();
+  const tmpComb = new THREE.Vector3();
+
+  for (let i = 0; i < numRings; i++) {
+    const s = sections[i];
+    const [cx, cy, cz] = s.pos;
+    const rx = s.rx;
+    const ry = s.ry;
+    const T = tangents[i];
+
+    // Orthonormal swept frame: R projects +X perpendicular to T, U = cross(T, R)
+    R.set(1 - T.x * T.x, -T.x * T.y, -T.x * T.z);
+    if (R.lengthSq() < 1e-6) R.set(0, 0, 1);
+    R.normalize();
+    U.crossVectors(T, R).normalize();
+
+    const topFlat = s.topFlat || 0;
+    const bottomFlat = s.bottomFlat || 0;
+    const bottomPinch = s.bottomPinch || 0;
+    const sideShiftY = s.sideShiftY || 0;
+    const furScale = s.furScale !== undefined ? s.furScale : 1.0;
+    const coatZ = s.coatZ !== undefined ? s.coatZ : 0.0;
+    const coatYCenter = s.coatYCenter !== undefined ? s.coatYCenter : 0.65;
+    const coatYSpan = s.coatYSpan !== undefined ? s.coatYSpan : 0.25;
+    const coatXOffset = s.coatXOffset !== undefined ? s.coatXOffset : 0.0;
+    const coatXSpan = s.coatXSpan !== undefined ? s.coatXSpan : 0.85;
+    const coatZone = s.coatZone !== undefined ? s.coatZone : 0.0;
+    const backFeather = s.backFeather || 0;
+    const bottomFeather = s.bottomFeather || 0;
+    const si = s.skinIndices || [0, 0, 0, 0];
+    const sw = s.skinWeights || [1, 0, 0, 0];
+    const vCoord = i / Math.max(1, numRings - 1);
+
+    let combX, combY, combZ;
+    if (s.combDir) {
+      combX = s.combDir[0];
+      combY = s.combDir[1];
+      combZ = s.combDir[2];
+    } else if (autoCombFromTangent) {
+      tmpComb.set(0, 0, 0)
+        .addScaledVector(T, autoCombFromTangent.t || 0)
+        .addScaledVector(U, autoCombFromTangent.u || 0);
+      if (tmpComb.lengthSq() > 1e-8) tmpComb.normalize();
+      combX = tmpComb.x;
+      combY = tmpComb.y;
+      combZ = tmpComb.z;
+    } else {
+      combX = 0;
+      combY = -0.32;
+      combZ = -0.94;
+    }
+
+    for (let j = 0; j <= radialSegs; j++) {
+      const uCoord = j / radialSegs;
+      const a = uCoord * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+
+      let sx = ca;
+      let sy = sa;
+      if (sy > 0 && topFlat > 0) {
+        sy = Math.pow(sy, 1.0 - topFlat * 0.45) * (1.0 - topFlat * 0.14);
+      }
+      if (sy < 0 && bottomFlat > 0) {
+        sy = -Math.pow(-sy, 1.0 - bottomFlat * 0.45) * (1.0 - bottomFlat * 0.22);
+      }
+      if (sy < 0 && bottomPinch > 0) {
+        sx *= 1.0 - bottomPinch * (-sy);
+      }
+      sy += sideShiftY * (1.0 - sy * sy);
+
+      const lx = cx + R.x * (sx * rx) + U.x * (sy * ry);
+      const ly = cy + R.y * (sx * rx) + U.y * (sy * ry);
+      const lz = cz + R.z * (sx * rx) + U.z * (sy * ry);
+
+      positions.push(lx, ly, lz);
+      uvs.push(uCoord, vCoord);
+      bodyPositions.push(lx, ly, lz);
+      combDirs.push(combX, combY, combZ);
+
+      const uSign = invertU ? -sy : sy;
+      const backFactor = Math.max(0, -sy);
+      const bottomFactor = Math.max(0, -uSign);
+      furScales.push(furScale * (1.0 + backFactor * backFeather + bottomFactor * bottomFeather));
+
+      const ccX = coatXOffset + sx * coatXSpan;
+      const ccY = useCoatYSpan ? (coatYCenter + uSign * coatYSpan) : coatYCenter;
+      coatCoords.push(ccX, ccY, coatZ, coatZone);
+
+      skinIndices.push(si[0], si[1], si[2], si[3]);
+      skinWeights.push(sw[0], sw[1], sw[2], sw[3]);
+    }
+  }
+
+  for (let i = 0; i < numRings - 1; i++) {
+    for (let j = 0; j < radialSegs; j++) {
+      const a = i * cols + j;
+      const b = (i + 1) * cols + j;
+      const c = (i + 1) * cols + (j + 1);
+      const d = i * cols + (j + 1);
+      indices.push(a, d, b, b, d, c);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setIndex(indices);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('aBodyPos', new THREE.Float32BufferAttribute(bodyPositions, 3));
+  geo.setAttribute('aCombDir', new THREE.Float32BufferAttribute(combDirs, 3));
+  geo.setAttribute('aFurScale', new THREE.Float32BufferAttribute(furScales, 1));
+  geo.setAttribute('aCoatCoord', new THREE.Float32BufferAttribute(coatCoords, 4));
+  geo.setAttribute('aShellHeight', new THREE.Float32BufferAttribute(new Float32Array(positions.length / 3), 1));
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+  geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
+  if (options.postProcess) {
+    options.postProcess(geo);
+  }
+
+  geo.computeVertexNormals();
+  weldSeamNormals(geo, numRings, radialSegs);
+  return geo;
+}
+
+function weldSeamNormals(geo, numRings, radialSegs) {
+  const cols = radialSegs + 1;
+  const normAttr = geo.getAttribute('normal');
+  for (let i = 0; i < numRings; i++) {
+    const i0 = i * cols;
+    const i1 = i * cols + radialSegs;
+    const nx = normAttr.getX(i0) + normAttr.getX(i1);
+    const ny = normAttr.getY(i0) + normAttr.getY(i1);
+    const nz = normAttr.getZ(i0) + normAttr.getZ(i1);
+    const len = Math.hypot(nx, ny, nz) || 1;
+    normAttr.setXYZ(i0, nx / len, ny / len, nz / len);
+    normAttr.setXYZ(i1, nx / len, ny / len, nz / len);
+  }
+  normAttr.needsUpdate = true;
+}
+
 /**
  * Packs `layers` concentric shell copies of `baseGeo` into a single BufferGeometry (1 draw call).
  * Drawn innermost-to-outermost so smooth translucent alpha blends cleanly.
+ * Automatically preserves skinIndex and skinWeight when present on `baseGeo`.
  */
 function createShellGeometry(baseGeo, layers = 20) {
   const posAttr = baseGeo.getAttribute('position');
@@ -812,6 +1215,9 @@ function createShellGeometry(baseGeo, layers = 20) {
   const combAttr = baseGeo.getAttribute('aCombDir');
   const scaleAttr = baseGeo.getAttribute('aFurScale');
   const coatAttr = baseGeo.getAttribute('aCoatCoord');
+  const skinIdxAttr = baseGeo.getAttribute('skinIndex');
+  const skinWgtAttr = baseGeo.getAttribute('skinWeight');
+  const hasSkinning = Boolean(skinIdxAttr && skinWgtAttr);
   const baseIdx = baseGeo.getIndex();
 
   const vCount = posAttr.count;
@@ -829,6 +1235,8 @@ function createShellGeometry(baseGeo, layers = 20) {
   const coatCoord = new Float32Array(totalV * 4);
   const shellHeight = new Float32Array(totalV);
   const indices = new Uint32Array(totalI);
+  const skinIndices = hasSkinning ? new Uint16Array(totalV * 4) : null;
+  const skinWeights = hasSkinning ? new Float32Array(totalV * 4) : null;
 
   for (let l = 0; l < layers; l++) {
     const h = (l + 1) / layers;
@@ -843,6 +1251,10 @@ function createShellGeometry(baseGeo, layers = 20) {
     furScale.set(scaleAttr.array, vOff);
     coatCoord.set(coatAttr.array, vOff * 4);
     shellHeight.fill(h, vOff, vOff + vCount);
+    if (hasSkinning) {
+      skinIndices.set(skinIdxAttr.array, vOff * 4);
+      skinWeights.set(skinWgtAttr.array, vOff * 4);
+    }
 
     if (baseIdx) {
       for (let k = 0; k < iCount; k++) {
@@ -865,6 +1277,10 @@ function createShellGeometry(baseGeo, layers = 20) {
   geo.setAttribute('aFurScale', new THREE.BufferAttribute(furScale, 1));
   geo.setAttribute('aCoatCoord', new THREE.BufferAttribute(coatCoord, 4));
   geo.setAttribute('aShellHeight', new THREE.BufferAttribute(shellHeight, 1));
+  if (hasSkinning) {
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+    geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+  }
   return geo;
 }
 
@@ -883,6 +1299,31 @@ function addFurredPart(parent, baseGeo, baseMat, shellMat, layers, disposables) 
   shellMesh.castShadow = false;
   shellMesh.receiveShadow = true;
   shellMesh.renderOrder = 1;
+  parent.add(shellMesh);
+
+  disposables.geometries.push(baseGeo, shellGeo);
+  return { baseMesh, shellMesh };
+}
+
+/**
+ * Helper to create a continuous skinned furred part (opaque base SkinnedMesh + shared-skeleton shell SkinnedMesh).
+ */
+function addSkinnedFurredPart(parent, baseGeo, baseMat, shellMat, layers, skeleton, disposables) {
+  const baseMesh = new THREE.SkinnedMesh(baseGeo, baseMat);
+  baseMesh.castShadow = true;
+  baseMesh.receiveShadow = true;
+  baseMesh.renderOrder = 0;
+  baseMesh.frustumCulled = false;
+  baseMesh.bind(skeleton, IDENTITY_MAT4);
+  parent.add(baseMesh);
+
+  const shellGeo = createShellGeometry(baseGeo, layers);
+  const shellMesh = new THREE.SkinnedMesh(shellGeo, shellMat);
+  shellMesh.castShadow = false;
+  shellMesh.receiveShadow = true;
+  shellMesh.renderOrder = 1;
+  shellMesh.frustumCulled = false;
+  shellMesh.bind(skeleton, IDENTITY_MAT4);
   parent.add(shellMesh);
 
   disposables.geometries.push(baseGeo, shellGeo);
@@ -1188,45 +1629,6 @@ function buildEyeAssembly(breed, side, irisMat, rimMat, eyelidMat, disposables) 
   return { eyePivot, eyeMesh, rimMesh, eyelidPivot };
 }
 
-function buildPawGeometry(legR, pawH, isFront, side, bodyTransformFn) {
-  // Compact, plump, rounded canine paw cluster ("丸い肉球のあるかたまり")
-  const pw = legR * (isFront ? 1.38 : 1.28);
-  const pl = legR * (isFront ? 2.02 : 2.08);
-
-  const sections = [
-    // Heel / pastern back
-    { pos: [0, pawH * 0.58, -pl * 0.34], rx: pw * 0.68, ry: pawH * 0.52, furScale: 0.26, coatZ: isFront ? 0.55 : -0.55, coatYCenter: 0.08, coatYSpan: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.68, 0.72] },
-    // Plump arched mid-paw
-    { pos: [0, pawH * 0.56, pl * 0.08], rx: pw * 1.04, ry: pawH * 0.58, topFlat: 0.10, sideShiftY: -0.16, furScale: 0.24, coatZ: isFront ? 0.60 : -0.50, coatYCenter: 0.06, coatYSpan: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.52, 0.85] },
-    // Rounded toe knuckles
-    { pos: [0, pawH * 0.50, pl * 0.50], rx: pw * 1.08, ry: pawH * 0.52, topFlat: 0.08, sideShiftY: -0.20, furScale: 0.20, coatZ: isFront ? 0.64 : -0.46, coatYCenter: 0.05, coatYSpan: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.38, 0.92] },
-    // Plump rounded toe tips
-    { pos: [0, pawH * 0.38, pl * 0.76], rx: pw * 0.80, ry: pawH * 0.40, sideShiftY: -0.18, furScale: 0.16, coatZ: isFront ? 0.66 : -0.44, coatYCenter: 0.04, coatYSpan: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.24, 0.97] },
-    { pos: [0, pawH * 0.26, pl * 0.86], rx: pw * 0.20, ry: pawH * 0.16, furScale: 0.10, coatZ: isFront ? 0.67 : -0.43, coatYCenter: 0.03, coatYSpan: 0.02, coatXOffset: 0, coatXSpan: side, coatZone: 3, combDir: [0, -0.20, 0.98] },
-  ];
-
-  const geo = createOrganicLoft(sections, 16, bodyTransformFn);
-
-  // Distinct 4-toe cushion ridges + clean ground contact at y = -pawH (world y = 0)
-  const pos = geo.getAttribute('position');
-  for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-    let z = pos.getZ(i);
-    if (z > pl * 0.22) {
-      const toeWave = Math.cos((x / Math.max(pw, 0.001)) * Math.PI * 3.5);
-      const t = Math.min(1, (z - pl * 0.22) / (pl * 0.54));
-      y += Math.max(0, toeWave) * pawH * 0.13 * t;
-      z += Math.max(0, toeWave) * pl * 0.055 * t;
-    }
-    const localBottom = y - pawH;
-    const clampedY = Math.max(-pawH, localBottom);
-    pos.setXYZ(i, x, clampedY, z);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
 function addPawPads(pawGroup, legR, pawH, isFront, padMat, disposables) {
   const pw = legR * (isFront ? 1.28 : 1.18);
   const pl = legR * (isFront ? 1.92 : 1.98);
@@ -1267,6 +1669,7 @@ export function buildDog(breedInput) {
     geometries: [],
     materials: [],
     textures: [],
+    skeletons: [],
   };
 
   const root = new THREE.Group();
@@ -1458,31 +1861,31 @@ export function buildDog(breedInput) {
   const legClearance = Math.max(0.035, chestBottomY);
 
   // ==========================================================================
-  // Skeleton Hierarchy (matching SPEC.md joints)
+  // Skeleton Hierarchy (THREE.Bone extends Object3D — exact SPEC.md hierarchy)
   // ==========================================================================
-  const pelvis = new THREE.Group();
+  const pelvis = new THREE.Bone();
   pelvis.name = 'pelvis';
   pelvis.position.set(0, pelvisY, pelvisZ);
   root.add(pelvis);
 
-  const spine1 = new THREE.Group();
+  const spine1 = new THREE.Bone();
   spine1.name = 'spine1';
   spine1.position.set(0, 0, spine1Z);
   pelvis.add(spine1);
 
-  const spine2 = new THREE.Group();
+  const spine2 = new THREE.Bone();
   spine2.name = 'spine2';
   spine2.position.set(0, 0, spine2Z);
   spine1.add(spine2);
 
-  const chest = new THREE.Group();
+  const chest = new THREE.Bone();
   chest.name = 'chest';
   chest.position.set(0, chestCenterY - pelvisY, chestZ);
   spine2.add(chest);
 
   const neckBaseY = halfD * 0.36;
   const neckBaseZ = B * 0.08;
-  const neck = new THREE.Group();
+  const neck = new THREE.Bone();
   neck.name = 'neck';
   neck.position.set(0, neckBaseY, neckBaseZ);
   const neckNeutralX = 0.66; // Natural forward-alert canine neck angle (~38 deg from vertical)
@@ -1491,110 +1894,134 @@ export function buildDog(breedInput) {
 
   const headBaseY = breed.neckLength * 0.84;
   const headBaseZ = breed.neckLength * 0.08;
-  const head = new THREE.Group();
+  const head = new THREE.Bone();
   head.name = 'head';
   head.position.set(0, headBaseY, headBaseZ);
   const headNeutralX = -neckNeutralX + 0.08; // Counters neck pitch so head sits gently level
   head.rotation.x = headNeutralX;
   neck.add(head);
 
-  // Neutral-pose world-position helpers for seamless 3D fur noise across joints
-  const neutralChestPos = new THREE.Vector3(0, chestCenterY, pelvisZ + spine1Z + spine2Z + chestZ);
-  const neutralPelvisPos = new THREE.Vector3(0, pelvisY, pelvisZ);
-  const neutralSpine1Pos = new THREE.Vector3(0, pelvisY, pelvisZ + spine1Z);
-  const neutralSpine2Pos = new THREE.Vector3(0, pelvisY, pelvisZ + spine1Z + spine2Z);
+  // Sync bind-pose world matrices in root space before building skinned geometry
+  root.updateMatrixWorld(true);
 
-  const makeOffsetTransform = (ox, oy, oz) => (local, out) => {
-    out.set(local.x + ox, local.y + oy, local.z + oz);
-  };
+  const getBonePos = (bone) => new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld);
+
+  // Neutral-pose world-position helpers for head/ears/jaw 3D fur noise continuity
+  const neutralChestPos = getBonePos(chest);
+  const neutralPelvisPos = getBonePos(pelvis);
 
   // ==========================================================================
-  // Torso Sculpting (Pelvis, Spine1, Spine2, Chest — deep ribcage & level back)
+  // Continuous Skinned Torso (pelvis -> spine1 -> spine2 -> chest)
   // ==========================================================================
   const waistFactor = 1.0 - breed.waistTuck;
   const ruffScale = 1.0 + breed.ruff * 0.42;
   const bellyFeather = breed.feathering * 0.46;
 
-  // Helper to align ring tops cleanly along the straight canine topline
-  const topAlignY = (ringRy, targetTop) => targetTop - ringRy;
-  const pelvisTopRel = croupTopY - pelvisY; // = pelvisHalfD
-  const midBackTopRel = (withersY * 0.985) - pelvisY;
-  const ribTopRel = (withersY * 0.995) - pelvisY;
+  // Align ring tops cleanly along the straight-to-gently-sloping canine topline
+  const topAlignWorldY = (ringRy, targetTopWorld) => targetTopWorld - ringRy;
+  const zSpine1 = pelvisZ + spine1Z;
+  const zSpine2 = zSpine1 + spine2Z;
+  const zChest = zSpine2 + chestZ;
 
-  // 1. Pelvis / Rump (spans world -0.50*B to -0.11*B)
-  const pR1 = pelvisHalfD * 0.82;
-  const pR2 = pelvisHalfD * 0.98;
-  const pR3 = pelvisHalfD * (0.86 + 0.12 * waistFactor);
-  const pR4 = pelvisHalfD * (0.78 + 0.14 * waistFactor);
-  const pelvisGeo = createOrganicLoft([
-    { pos: [0, -pelvisHalfD * 0.06, -B * 0.19], rx: halfW * 0.20, ry: pelvisHalfD * 0.20, furScale: 0.96, coatZ: -0.95, coatYCenter: 0.66, coatYSpan: 0.12, coatXSpan: 0.24, coatZone: 0 },
-    { pos: [0, topAlignY(pR1, pelvisTopRel * 0.94), -B * 0.13], rx: halfW * 0.78, ry: pR1, topFlat: 0.14, furScale: 1.02, coatZ: -0.84, coatYCenter: 0.68, coatYSpan: 0.24, coatXSpan: 0.76, coatZone: 0 },
-    { pos: [0, topAlignY(pR2, pelvisTopRel), -B * 0.02], rx: halfW * 0.92, ry: pR2, topFlat: 0.20, bottomPinch: 0.16, furScale: 1.02, coatZ: -0.60, coatYCenter: 0.68, coatYSpan: 0.28, coatXSpan: 0.90, coatZone: 0, bottomFeather: bellyFeather * 0.35 },
-    { pos: [0, topAlignY(pR3, midBackTopRel), B * 0.10], rx: halfW * 0.86 * (0.86 + 0.14 * waistFactor), ry: pR3, topFlat: 0.22, bottomPinch: 0.20, furScale: 0.98, coatZ: -0.34, coatYCenter: 0.70, coatYSpan: 0.26, coatXSpan: 0.84, coatZone: 0, bottomFeather: bellyFeather * 0.45 },
-    { pos: [0, topAlignY(pR4, midBackTopRel), B * 0.20], rx: halfW * 0.76 * (0.84 + 0.16 * waistFactor), ry: pR4, topFlat: 0.18, furScale: 0.94, coatZ: -0.14, coatYCenter: 0.70, coatYSpan: 0.24, coatXSpan: 0.74, coatZone: 0 },
-  ], 22, makeOffsetTransform(neutralPelvisPos.x, neutralPelvisPos.y, neutralPelvisPos.z));
-  addFurredPart(pelvis, pelvisGeo, baseCoatMat, shellFurMat, 20, disposables);
+  const tRy1 = pelvisHalfD * 0.74;
+  const tRy2 = pelvisHalfD * 0.97;
+  const tRy3 = pelvisHalfD * (0.86 + 0.12 * waistFactor);
+  const tRy4 = halfD * (0.77 + 0.17 * waistFactor);
+  const tRy5 = halfD * 0.94;
+  const tRy6 = halfD * 0.99;
 
-  // 2. Spine1 (Loin / smooth upward belly tuck while topline stays straight)
-  const s1R0 = pelvisHalfD * (0.84 + 0.12 * waistFactor);
-  const s1R1 = halfD * (0.76 + 0.18 * waistFactor);
-  const s1R2 = halfD * 0.94;
-  const s1R3 = halfD * 0.88;
-  const spine1Geo = createOrganicLoft([
-    { pos: [0, topAlignY(s1R0, midBackTopRel), -B * 0.12], rx: halfW * 0.82, ry: s1R0, topFlat: 0.20, bottomPinch: 0.18, furScale: 0.96, coatZ: -0.34, coatYCenter: 0.70, coatYSpan: 0.26, coatXSpan: 0.80, coatZone: 0 },
-    { pos: [0, topAlignY(s1R1, midBackTopRel), 0.0], rx: halfW * (0.82 + 0.16 * waistFactor), ry: s1R1, topFlat: 0.22, bottomPinch: 0.22, furScale: 0.98, coatZ: -0.08, coatYCenter: 0.71, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0, bottomFeather: bellyFeather * 0.65 },
-    { pos: [0, topAlignY(s1R2, ribTopRel), B * 0.13], rx: halfW * 0.95, ry: s1R2, topFlat: 0.22, bottomPinch: 0.20, furScale: 1.00, coatZ: 0.16, coatYCenter: 0.68, coatYSpan: 0.29, coatXSpan: 0.92, coatZone: 0, bottomFeather: bellyFeather * 0.80 },
-    { pos: [0, topAlignY(s1R3, ribTopRel), B * 0.22], rx: halfW * 0.88, ry: s1R3, topFlat: 0.18, furScale: 0.96, coatZ: 0.30, coatYCenter: 0.66, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0 },
-  ], 22, makeOffsetTransform(neutralSpine1Pos.x, neutralSpine1Pos.y, neutralSpine1Pos.z));
-  addFurredPart(spine1, spine1Geo, baseCoatMat, shellFurMat, 20, disposables);
+  const torsoStations = [
+    // Closed rump dome (-0.50*B)
+    { pos: [0, pelvisY - pelvisHalfD * 0.06, -B * 0.50], rx: halfW * 0.18, ry: pelvisHalfD * 0.18, furScale: 0.96, coatZ: -0.95, coatYCenter: 0.66, coatYSpan: 0.12, coatXSpan: 0.22, coatZone: 0 },
+    { pos: [0, topAlignWorldY(tRy1, croupTopY - pelvisHalfD * 0.06), -B * 0.44], rx: halfW * 0.74, ry: tRy1, topFlat: 0.14, furScale: 1.02, coatZ: -0.84, coatYCenter: 0.68, coatYSpan: 0.24, coatXSpan: 0.74, coatZone: 0 },
+    // Full pelvis / croup
+    { pos: [0, topAlignWorldY(tRy2, croupTopY), -B * 0.33], rx: halfW * 0.92, ry: tRy2, topFlat: 0.20, bottomPinch: 0.16, furScale: 1.02, coatZ: -0.60, coatYCenter: 0.68, coatYSpan: 0.28, coatXSpan: 0.90, coatZone: 0, bottomFeather: bellyFeather * 0.35 },
+    { pos: [0, topAlignWorldY(tRy3, withersY * 0.982), -B * 0.21], rx: halfW * 0.86 * (0.86 + 0.14 * waistFactor), ry: tRy3, topFlat: 0.22, bottomPinch: 0.20, furScale: 0.98, coatZ: -0.34, coatYCenter: 0.70, coatYSpan: 0.26, coatXSpan: 0.84, coatZone: 0, bottomFeather: bellyFeather * 0.48 },
+    // Loin / smooth upward belly tuck (around spine1)
+    { pos: [0, topAlignWorldY(tRy4, withersY * 0.986), -B * 0.10], rx: halfW * (0.82 + 0.16 * waistFactor), ry: tRy4, topFlat: 0.22, bottomPinch: 0.22, furScale: 0.98, coatZ: -0.08, coatYCenter: 0.71, coatYSpan: 0.26, coatXSpan: 0.82, coatZone: 0, bottomFeather: bellyFeather * 0.65 },
+    // Rear ribcage
+    { pos: [0, topAlignWorldY(tRy5, withersY * 0.993), B * 0.03], rx: halfW * 0.96, ry: tRy5, topFlat: 0.22, bottomPinch: 0.21, furScale: 1.00, coatZ: 0.18, coatYCenter: 0.68, coatYSpan: 0.29, coatXSpan: 0.94, coatZone: 0, bottomFeather: bellyFeather * 0.82 },
+    // Deep mid-ribcage (around spine2)
+    { pos: [0, topAlignWorldY(tRy6, withersY * 0.998), B * 0.16], rx: halfW * 1.01, ry: tRy6, topFlat: 0.20, bottomPinch: 0.23, furScale: 1.04, coatZ: 0.42, coatYCenter: 0.65, coatYSpan: 0.32, coatXSpan: 0.98, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
+    // Deepest chest / withers (around chest)
+    { pos: [0, chestCenterY, B * 0.29], rx: halfW * 1.04, ry: halfD * 1.01, topFlat: 0.18, bottomPinch: 0.24, furScale: 1.06, coatZ: 0.64, coatYCenter: 0.64, coatYSpan: 0.33, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
+    // Muscular forechest
+    { pos: [0, chestCenterY - halfD * 0.03, B * 0.40], rx: halfW * 0.94, ry: halfD * 0.92, topFlat: 0.14, bottomPinch: 0.24, furScale: ruffScale, coatZ: 0.80, coatYCenter: 0.62, coatYSpan: 0.31, coatXSpan: 0.92, coatZone: 0, bottomFeather: breed.ruff * 0.55 },
+    // Prominent prosternum & front closure (+0.50*B)
+    { pos: [0, chestCenterY - halfD * 0.07, B * 0.47], rx: halfW * 0.62, ry: halfD * 0.62, bottomPinch: 0.22, furScale: ruffScale * 1.02, coatZ: 0.90, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.62, coatZone: 0, bottomFeather: breed.ruff * 0.60 },
+    { pos: [0, chestCenterY - halfD * 0.09, B * 0.50], rx: halfW * 0.16, ry: halfD * 0.16, furScale: ruffScale * 0.82, coatZ: 0.95, coatYCenter: 0.56, coatYSpan: 0.10, coatXSpan: 0.20, coatZone: 0 },
+  ];
 
-  // 3. Spine2 (Deep mid-ribcage)
-  const s2R0 = halfD * 0.90;
-  const s2R1 = halfD * 0.98;
-  const s2R2 = halfD * 1.00;
-  const s2R3 = halfD * 0.92;
-  const spine2Geo = createOrganicLoft([
-    { pos: [0, topAlignY(s2R0, ribTopRel), -B * 0.12], rx: halfW * 0.88, ry: s2R0, topFlat: 0.20, bottomPinch: 0.20, furScale: 0.98, coatZ: 0.06, coatYCenter: 0.69, coatYSpan: 0.28, coatXSpan: 0.86, coatZone: 0 },
-    { pos: [0, topAlignY(s2R1, ribTopRel), 0.0], rx: halfW * 0.98, ry: s2R1, topFlat: 0.22, bottomPinch: 0.22, furScale: 1.02, coatZ: 0.28, coatYCenter: 0.66, coatYSpan: 0.31, coatXSpan: 0.96, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
-    { pos: [0, topAlignY(s2R2, withersY - pelvisY), B * 0.13], rx: halfW * 1.02, ry: s2R2, topFlat: 0.20, bottomPinch: 0.24, furScale: 1.04, coatZ: 0.48, coatYCenter: 0.64, coatYSpan: 0.32, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
-    { pos: [0, topAlignY(s2R3, withersY - pelvisY), B * 0.22], rx: halfW * 0.92, ry: s2R3, topFlat: 0.16, furScale: 1.00, coatZ: 0.62, coatYCenter: 0.64, coatYSpan: 0.30, coatXSpan: 0.90, coatZone: 0 },
-  ], 22, makeOffsetTransform(neutralSpine2Pos.x, neutralSpine2Pos.y, neutralSpine2Pos.z));
-  addFurredPart(spine2, spine2Geo, baseCoatMat, shellFurMat, 20, disposables);
-
-  // 4. Chest / Forechest (deep keel down to elbows, broad muscular withers & prosternum)
-  const chestGeo = createOrganicLoft([
-    { pos: [0, 0.02 * halfD, -B * 0.14], rx: halfW * 0.94, ry: halfD * 0.95, topFlat: 0.20, bottomPinch: 0.20, furScale: 1.02, coatZ: 0.44, coatYCenter: 0.66, coatYSpan: 0.30, coatXSpan: 0.92, coatZone: 0 },
-    { pos: [0, 0.0, -B * 0.02], rx: halfW * 1.04, ry: halfD * 1.01, topFlat: 0.18, bottomPinch: 0.24, furScale: 1.06, coatZ: 0.64, coatYCenter: 0.64, coatYSpan: 0.33, coatXSpan: 1.00, coatZone: 0, bottomFeather: bellyFeather * 0.85 },
-    { pos: [0, -halfD * 0.03, B * 0.09], rx: halfW * 0.94, ry: halfD * 0.92, topFlat: 0.14, bottomPinch: 0.24, furScale: ruffScale, coatZ: 0.80, coatYCenter: 0.62, coatYSpan: 0.31, coatXSpan: 0.92, coatZone: 0, bottomFeather: breed.ruff * 0.55 },
-    // Prominent canine forechest / prosternum
-    { pos: [0, -halfD * 0.07, B * 0.16], rx: halfW * 0.64, ry: halfD * 0.64, bottomPinch: 0.22, furScale: ruffScale * 1.02, coatZ: 0.90, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.62, coatZone: 0, bottomFeather: breed.ruff * 0.60 },
-    { pos: [0, -halfD * 0.09, B * 0.19], rx: halfW * 0.18, ry: halfD * 0.18, furScale: ruffScale * 0.82, coatZ: 0.95, coatYCenter: 0.56, coatYSpan: 0.10, coatXSpan: 0.20, coatZone: 0 },
-  ], 24, makeOffsetTransform(neutralChestPos.x, neutralChestPos.y, neutralChestPos.z));
-  addFurredPart(chest, chestGeo, baseCoatMat, shellFurMat, 20, disposables);
+  const { rings: torsoRings } = resampleSections(torsoStations, [1, 2, 2, 3, 3, 3, 3, 2, 2, 1]);
+  const z0Torso = torsoRings[0].pos[2];
+  const torsoZArcs = Float32Array.from(torsoRings, (r) => r.pos[2] - z0Torso);
+  assignChainWeights(
+    torsoRings,
+    torsoZArcs,
+    [zSpine1 - z0Torso, zSpine2 - z0Torso, zChest - z0Torso],
+    0.075
+  );
+  const torsoSkeleton = new THREE.Skeleton([pelvis, spine1, spine2, chest]);
+  disposables.skeletons.push(torsoSkeleton);
+  const torsoGeo = createSkinnedTube(torsoRings, 22);
+  addSkinnedFurredPart(root, torsoGeo, baseCoatMat, shellFurMat, 18, torsoSkeleton, disposables);
 
   // ==========================================================================
-  // Neck & Head Assembly (Thick muscular short neck, full expressive head)
+  // Continuous Skinned Neck (chest -> neck -> head base)
   // ==========================================================================
   const nl = breed.neckLength;
   const nr = breed.neckRadius;
-  const neckNeutralWorld = new THREE.Vector3(0, chestCenterY + neckBaseY, neutralChestPos.z + neckBaseZ);
+  const headSizeRef = breed.headSize;
+  const neckNeutralWorld = getBonePos(neck);
   const neckQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(neckNeutralX, 0, 0));
-  const neckBodyFn = (local, out) => {
-    out.copy(local).applyQuaternion(neckQuat).add(neckNeutralWorld);
-  };
+  const headNeutralWorld = getBonePos(head);
+  const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(neckNeutralX + headNeutralX, 0, 0));
 
-  const neckGeo = createOrganicLoft([
-    { pos: [0, -nl * 0.34, -nr * 0.14], rx: nr * 1.32, ry: nr * 1.44, axis: 'y', furScale: ruffScale * 1.04, coatZ: 0.86, coatYCenter: 0.64, coatYSpan: 0.24, coatXSpan: 0.72, coatZone: 0, combDir: [0, -0.78, -0.60] },
-    { pos: [0, nl * 0.08, 0.0], rx: nr * 1.14, ry: nr * 1.24, axis: 'y', furScale: ruffScale, coatZ: 0.95, coatYCenter: 0.65, coatYSpan: 0.24, coatXSpan: 0.66, coatZone: 0, combDir: [0, -0.82, -0.56] },
-    { pos: [0, nl * 0.50, nr * 0.04], rx: nr * 0.98, ry: nr * 1.04, axis: 'y', furScale: 0.94 + breed.ruff * 0.30, coatZ: 1.03, coatYCenter: 0.66, coatYSpan: 0.24, coatXSpan: 0.58, coatZone: 0, combDir: [0, -0.84, -0.52] },
-    { pos: [0, nl * 0.88, nr * 0.06], rx: nr * 0.90, ry: nr * 0.94, axis: 'y', furScale: 0.84 + breed.ruff * 0.18, coatZ: 1.09, coatYCenter: 0.67, coatYSpan: 0.22, coatXSpan: 0.52, coatZone: 0, combDir: [0, -0.85, -0.50] },
-    { pos: [0, nl * 1.06, nr * 0.06], rx: nr * 0.52, ry: nr * 0.52, axis: 'y', furScale: 0.64, coatZ: 1.12, coatYCenter: 0.68, coatYSpan: 0.16, coatXSpan: 0.30, coatZone: 0, combDir: [0, -0.85, -0.50] },
-  ], 20, neckBodyFn);
-  addFurredPart(neck, neckGeo, baseCoatMat, shellFurMat, 20, disposables);
+  const neckAxisY = new THREE.Vector3(0, 1, 0).applyQuaternion(neckQuat);
+  const neckAxisZ = new THREE.Vector3(0, 0, 1).applyQuaternion(neckQuat);
+  const headAxisY = new THREE.Vector3(0, 1, 0).applyQuaternion(headQuat);
+  const headAxisZ = new THREE.Vector3(0, 0, 1).applyQuaternion(headQuat);
+
+  const neckPt = (yOff, zOff) => {
+    const v = neckNeutralWorld.clone()
+      .addScaledVector(neckAxisY, yOff)
+      .addScaledVector(neckAxisZ, zOff);
+    return [v.x, v.y, v.z];
+  };
+  const headAnchorVec = headNeutralWorld.clone()
+    .addScaledVector(headAxisY, headSizeRef * 0.18)
+    .addScaledVector(headAxisZ, headSizeRef * 0.05);
+
+  const neckStations = [
+    // Deep inside upper chest / withers (weighted to chest so chest-neck seam never opens)
+    { pos: neckPt(-nl * 0.48, -nr * 0.24), rx: Math.min(nr * 1.42, halfW * 0.94), ry: Math.min(nr * 1.48, halfD * 0.88), furScale: ruffScale * 1.04, coatZ: 0.78, coatYCenter: 0.64, coatYSpan: 0.24, coatXSpan: 0.76, coatZone: 0, combDir: [0, -0.34, -0.94] },
+    { pos: neckPt(-nl * 0.18, -nr * 0.10), rx: Math.min(nr * 1.26, halfW * 0.96), ry: Math.min(nr * 1.34, halfD * 0.90), furScale: ruffScale * 1.03, coatZ: 0.87, coatYCenter: 0.64, coatYSpan: 0.24, coatXSpan: 0.72, coatZone: 0, combDir: [0, -0.34, -0.94] },
+    // Neck pivot base
+    { pos: [neckNeutralWorld.x, neckNeutralWorld.y, neckNeutralWorld.z], rx: nr * 1.14, ry: nr * 1.22, furScale: ruffScale, coatZ: 0.95, coatYCenter: 0.65, coatYSpan: 0.24, coatXSpan: 0.66, coatZone: 0, combDir: [0, -0.32, -0.95] },
+    // Mid neck
+    { pos: neckPt(nl * 0.45, nr * 0.04), rx: nr * 0.98, ry: nr * 1.04, furScale: 0.94 + breed.ruff * 0.30, coatZ: 1.03, coatYCenter: 0.66, coatYSpan: 0.24, coatXSpan: 0.58, coatZone: 0, combDir: [0, -0.32, -0.95] },
+    // Head joint pivot (blends smoothly from neck into head)
+    { pos: [headNeutralWorld.x, headNeutralWorld.y, headNeutralWorld.z], rx: Math.min(nr * 0.90, headSizeRef * 0.74), ry: Math.min(nr * 0.92, headSizeRef * 0.68), furScale: 0.84 + breed.ruff * 0.18, coatZ: 1.09, coatYCenter: 0.67, coatYSpan: 0.22, coatXSpan: 0.52, coatZone: 0, combDir: [0, -0.30, -0.95] },
+    // Inside cranium (weighted 100% to head so head-neck transition stays watertight at any pitch/yaw)
+    { pos: [headAnchorVec.x, headAnchorVec.y, headAnchorVec.z], rx: Math.min(nr * 0.56, headSizeRef * 0.52), ry: Math.min(nr * 0.52, headSizeRef * 0.46), furScale: 0.64, coatZ: 1.13, coatYCenter: 0.68, coatYSpan: 0.16, coatXSpan: 0.32, coatZone: 0, combDir: [0, -0.30, -0.95] },
+  ];
+
+  const { rings: neckRings, stationRingIndex: neckIdx, arcLengths: neckArcs } = resampleSections(
+    neckStations,
+    [2, 2, 3, 3, 2]
+  );
+  assignChainWeights(
+    neckRings,
+    neckArcs,
+    [neckArcs[neckIdx[2]], neckArcs[neckIdx[4]]],
+    0.068
+  );
+  const neckSkeleton = new THREE.Skeleton([chest, neck, head]);
+  disposables.skeletons.push(neckSkeleton);
+  const neckGeo = createSkinnedTube(neckRings, 18);
+  addSkinnedFurredPart(root, neckGeo, baseCoatMat, shellFurMat, 18, neckSkeleton, disposables);
 
   // Head body-space transform
-  const headNeutralWorld = new THREE.Vector3(0, headBaseY, headBaseZ).applyQuaternion(neckQuat).add(neckNeutralWorld);
-  const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(neckNeutralX + headNeutralX, 0, 0));
   const headBodyFn = (local, out) => {
     out.copy(local).applyQuaternion(headQuat).add(headNeutralWorld);
   };
@@ -1765,8 +2192,9 @@ export function buildDog(breedInput) {
   head.add(earR);
 
   // ==========================================================================
-  // 4 Sculpted Canine Legs (FL, FR, BL, BR)
-  // Muscular broad upper arm & thigh tapering to slender wrist/metatarsus + plump paws!
+  // 4 Continuous Skinned Canine Legs (FL, FR, BL, BR)
+  // One seamless SkinnedMesh per leg from buried torso anchor -> shoulder/hip ->
+  // upper -> elbow/stifle -> lower -> ankle/wrist -> plump paw & toes!
   // coatXOffset: 0, coatXSpan: side -> cc.x = -1 on inner leg, +1 on outer leg!
   // ==========================================================================
   const legFeather = breed.feathering * 0.72;
@@ -1778,123 +2206,193 @@ export function buildDog(breedInput) {
   const hipOffY = hipY - pelvisY;
   const hipOffZ = -B * 0.02;
 
+  function makePawPostProcess(pPw, pw, pl) {
+    const toeStartZ = pPw.z + pl * 0.20;
+    return (geo) => {
+      const pos = geo.getAttribute('position');
+      const bodyPos = geo.getAttribute('aBodyPos');
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        let y = pos.getY(i);
+        let z = pos.getZ(i);
+        if (y < pawH * 1.45) {
+          if (z > toeStartZ) {
+            const localX = x - pPw.x;
+            const toeWave = Math.cos((localX / Math.max(pw, 0.001)) * Math.PI * 3.5);
+            const t = Math.min(1, (z - toeStartZ) / Math.max(0.005, pl * 0.56));
+            y += Math.max(0, toeWave) * pawH * 0.13 * t;
+            z += Math.max(0, toeWave) * pl * 0.055 * t;
+          }
+          if (y < 0) y = 0;
+          pos.setXYZ(i, x, y, z);
+          bodyPos.setXYZ(i, x, y, z);
+        }
+      }
+      pos.needsUpdate = true;
+      bodyPos.needsUpdate = true;
+    };
+  }
+
   function buildFrontLeg(side, label) {
-    const shoulder = new THREE.Group();
+    const shoulder = new THREE.Bone();
     shoulder.name = `shoulder_${label}`;
     shoulder.position.set(side * shoulderOffX, shoulderOffY, shoulderOffZ);
     chest.add(shoulder);
 
-    const upper = new THREE.Group();
+    const upper = new THREE.Bone();
     upper.name = `upper_${label}`;
     upper.rotation.x = frontUpperX;
     shoulder.add(upper);
 
-    const sWorld = new THREE.Vector3(side * shoulderOffX, shoulderY, neutralChestPos.z + shoulderOffZ);
-    const uQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(frontUpperX, 0, 0));
-    const upperBodyFn = (local, out) => out.copy(local).applyQuaternion(uQuat).add(sWorld);
-
-    // Broad muscular upper arm / shoulder (humerus + deltoid) blending smoothly into ribcage
-    const upperGeo = createOrganicLoft([
-      { pos: [-side * legR * 0.30, legR * 1.15, -legR * 0.12], rx: legR * 1.38, ry: legR * 1.95, axis: 'y', furScale: 1.00, coatZ: 0.62, coatYCenter: 0.60, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
-      { pos: [-side * legR * 0.08, 0.0, 0.0], rx: legR * 1.62, ry: legR * 2.15, axis: 'y', furScale: 1.02, coatZ: 0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.45 },
-      { pos: [0, -frontUpperLen * 0.55, 0.0], rx: legR * 1.34, ry: legR * 1.62, axis: 'y', furScale: 0.92, coatZ: 0.62, coatYCenter: 0.40, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.68 },
-      { pos: [0, -frontUpperLen * 1.05, 0.0], rx: legR * 1.10, ry: legR * 1.24, axis: 'y', furScale: 0.84, coatZ: 0.60, coatYCenter: 0.32, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.80 },
-    ], 16, upperBodyFn);
-    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 18, disposables);
-
-    const lower = new THREE.Group();
+    const lower = new THREE.Bone();
     lower.name = `lower_${label}`;
     lower.position.set(0, -frontUpperLen, 0);
     lower.rotation.x = frontLowerX;
     upper.add(lower);
 
-    const elbowWorld = new THREE.Vector3(0, -frontUpperLen, 0).applyQuaternion(uQuat).add(sWorld);
-    const lQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(frontUpperX + frontLowerX, 0, 0));
-    const lowerBodyFn = (local, out) => out.copy(local).applyQuaternion(lQuat).add(elbowWorld);
-
-    // Muscular forearm tapering clearly down to slender wrist & pastern
-    const lowerGeo = createOrganicLoft([
-      { pos: [0, legR * 0.35, 0], rx: legR * 1.08, ry: legR * 1.18, axis: 'y', furScale: 0.84, coatZ: 0.60, coatYCenter: 0.32, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.90 },
-      { pos: [0, -frontLowerLen * 0.34, 0], rx: legR * 0.90, ry: legR * 0.96, axis: 'y', furScale: 0.72, coatZ: 0.60, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.85 },
-      // Slender wrist (carpus)
-      { pos: [0, -frontLowerLen * 0.74, legR * 0.05], rx: legR * 0.66, ry: legR * 0.68, axis: 'y', furScale: 0.46 + breed.curl * 0.42, coatZ: 0.61, coatYCenter: 0.14, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.35 },
-      // Slender pastern meeting plump paw
-      { pos: [0, -frontLowerLen * 1.02, legR * 0.15], rx: legR * 0.64, ry: legR * 0.68, axis: 'y', furScale: 0.34 + breed.curl * 0.36, coatZ: 0.62, coatYCenter: 0.08, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
-    ], 14, lowerBodyFn);
-    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 16, disposables);
-
-    const paw = new THREE.Group();
+    const paw = new THREE.Bone();
     paw.name = `paw_${label}`;
     paw.position.set(0, -frontLowerLen, legR * 0.15);
     paw.rotation.x = frontPawX;
     lower.add(paw);
 
-    const pawWorld = new THREE.Vector3(0, -frontLowerLen, legR * 0.15).applyQuaternion(lQuat).add(elbowWorld);
-    const pawBodyFn = (local, out) => out.copy(local).add(pawWorld);
-    const pawGeo = buildPawGeometry(legR, pawH, true, side, pawBodyFn);
-    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 14, disposables);
+    root.updateMatrixWorld(true);
+
+    const pSh = getBonePos(shoulder);
+    const pEl = getBonePos(lower);
+    const pPw = getBonePos(paw);
+    const pw = legR * 1.38;
+    const pl = legR * 2.02;
+    const shTopLift = Math.min(legR * 1.42, cDepth * 0.34);
+
+    const stations = [
+      // 0. Buried inside ribcage (weighted to chest for gap-free shoulder blend)
+      { pos: [pSh.x - side * legR * 0.88, pSh.y + shTopLift, pSh.z - legR * 0.16], rx: legR * 1.05, ry: legR * 1.65, furScale: 1.00, coatZ: 0.62, coatYCenter: 0.64, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 1. Upper deltoid emerging smoothly from chest
+      { pos: [pSh.x - side * legR * 0.34, pSh.y + shTopLift * 0.48, pSh.z - legR * 0.08], rx: legR * 1.44, ry: legR * 2.02, furScale: 1.02, coatZ: 0.63, coatYCenter: 0.58, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.30 },
+      // 2. Shoulder pivot
+      { pos: [pSh.x - side * legR * 0.08, pSh.y, pSh.z], rx: legR * 1.58, ry: legR * 2.12, furScale: 1.02, coatZ: 0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.45 },
+      // 3. Mid upper arm
+      { pos: [pSh.x * 0.48 + pEl.x * 0.52, pSh.y * 0.48 + pEl.y * 0.52, pSh.z * 0.48 + pEl.z * 0.52], rx: legR * 1.32, ry: legR * 1.58, furScale: 0.92, coatZ: 0.62, coatYCenter: 0.40, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.68 },
+      // 4. Elbow pivot
+      { pos: [pEl.x, pEl.y, pEl.z], rx: legR * 1.12, ry: legR * 1.24, furScale: 0.84, coatZ: 0.60, coatYCenter: 0.32, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.85 },
+      // 5. Muscular upper forearm
+      { pos: [pEl.x, pEl.y - frontLowerLen * 0.36, pEl.z + legR * 0.03], rx: legR * 0.90, ry: legR * 0.96, furScale: 0.72, coatZ: 0.60, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.82 },
+      // 6. Slender wrist (carpus)
+      { pos: [pEl.x, pEl.y - frontLowerLen * 0.74, pEl.z + legR * 0.08], rx: legR * 0.66, ry: legR * 0.68, furScale: 0.46 + breed.curl * 0.42, coatZ: 0.61, coatYCenter: 0.14, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.35 },
+      // 7. Pastern / ankle joint curving into paw
+      { pos: [pPw.x, pPw.y + pawH * 0.12, pPw.z - pl * 0.04], rx: legR * 0.72, ry: legR * 0.72, furScale: 0.30 + breed.curl * 0.30, coatZ: 0.61, coatYCenter: 0.09, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 8. Plump arched mid-paw
+      { pos: [pPw.x, pawH * 0.58, pPw.z + pl * 0.16], rx: pw * 1.04, ry: pawH * 0.58, topFlat: 0.08, bottomFlat: 0.65, sideShiftY: -0.14, furScale: 0.24, coatZ: 0.62, coatYCenter: 0.06, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 9. Rounded toe knuckles
+      { pos: [pPw.x, pawH * 0.50, pPw.z + pl * 0.50], rx: pw * 1.08, ry: pawH * 0.52, topFlat: 0.08, bottomFlat: 0.70, sideShiftY: -0.18, furScale: 0.20, coatZ: 0.64, coatYCenter: 0.05, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 10. Plump rounded toe tips
+      { pos: [pPw.x, pawH * 0.38, pPw.z + pl * 0.76], rx: pw * 0.80, ry: pawH * 0.40, bottomFlat: 0.55, sideShiftY: -0.16, furScale: 0.16, coatZ: 0.66, coatYCenter: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 11. Tip closure
+      { pos: [pPw.x, pawH * 0.24, pPw.z + pl * 0.88], rx: pw * 0.18, ry: pawH * 0.14, furScale: 0.10, coatZ: 0.67, coatYCenter: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, dir: [0, -0.18, 0.98] },
+    ];
+
+    const { rings, stationRingIndex: idx, arcLengths } = resampleSections(
+      stations,
+      [1, 2, 2, 3, 3, 2, 2, 2, 2, 1, 1]
+    );
+    assignLegWeights(rings, arcLengths, arcLengths[idx[2]], arcLengths[idx[4]], arcLengths[idx[7]]);
+
+    const legSkeleton = new THREE.Skeleton([chest, shoulder, upper, lower, paw]);
+    disposables.skeletons.push(legSkeleton);
+    const legGeo = createSkinnedTube(rings, 14, {
+      useCoatYSpan: false,
+      autoCombFromTangent: { t: 0.94, u: -0.32 },
+      postProcess: makePawPostProcess(pPw, pw, pl),
+    });
+    addSkinnedFurredPart(root, legGeo, baseCoatMat, shellFurMat, 16, legSkeleton, disposables);
     addPawPads(paw, legR, pawH, true, padMat, disposables);
 
     return { shoulder, upper, lower, paw };
   }
 
   function buildBackLeg(side, label) {
-    const hip = new THREE.Group();
+    const hip = new THREE.Bone();
     hip.name = `hip_${label}`;
     hip.position.set(side * hipOffX, hipOffY, hipOffZ);
     pelvis.add(hip);
 
-    const upper = new THREE.Group();
+    const upper = new THREE.Bone();
     upper.name = `upper_${label}`;
     upper.rotation.x = backUpperX;
     hip.add(upper);
 
-    const hWorld = new THREE.Vector3(side * hipOffX, hipY, neutralPelvisPos.z + hipOffZ);
-    const uQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(backUpperX, 0, 0));
-    const upperBodyFn = (local, out) => out.copy(local).applyQuaternion(uQuat).add(hWorld);
-
-    // Broad powerful muscular thigh / haunch tapering strongly down to stifle
-    const upperGeo = createOrganicLoft([
-      { pos: [-side * legR * 0.28, legR * 1.15, -legR * 0.16], rx: legR * 1.48, ry: legR * 2.35, axis: 'y', furScale: 1.04, coatZ: -0.62, coatYCenter: 0.62, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
-      { pos: [-side * legR * 0.06, 0.0, -legR * 0.22], rx: legR * 1.72, ry: legR * 2.62, axis: 'y', furScale: 1.06, coatZ: -0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.72 },
-      { pos: [0, -backUpperLen * 0.55, -legR * 0.16], rx: legR * 1.42, ry: legR * 1.88, axis: 'y', furScale: 0.94, coatZ: -0.58, coatYCenter: 0.38, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.78 },
-      { pos: [0, -backUpperLen * 1.05, 0.0], rx: legR * 1.12, ry: legR * 1.32, axis: 'y', furScale: 0.84, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.62 },
-    ], 16, upperBodyFn);
-    addFurredPart(upper, upperGeo, baseCoatMat, shellFurMat, 18, disposables);
-
-    const lower = new THREE.Group();
+    const lower = new THREE.Bone();
     lower.name = `lower_${label}`;
     lower.position.set(0, -backUpperLen, 0);
     lower.rotation.x = backLowerX;
     upper.add(lower);
 
-    const stifleWorld = new THREE.Vector3(0, -backUpperLen, 0).applyQuaternion(uQuat).add(hWorld);
-    const lQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(backUpperX + backLowerX, 0, 0));
-    const lowerBodyFn = (local, out) => out.copy(local).applyQuaternion(lQuat).add(stifleWorld);
-
-    // Muscular gaskin -> distinct canine hock (tarsus) -> slender vertical metatarsus
-    const hockJut = -legR * 1.12;
-    const lowerGeo = createOrganicLoft([
-      { pos: [0, legR * 0.36, 0], rx: legR * 1.10, ry: legR * 1.32, axis: 'y', furScale: 0.84, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.70 },
-      { pos: [0, -backLowerLen * 0.36, hockJut * 0.82], rx: legR * 0.86, ry: legR * 1.06, axis: 'y', furScale: 0.72, coatZ: -0.58, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.55 },
-      // Hock joint (tarsus)
-      { pos: [0, -backLowerLen * 0.54, hockJut], rx: legR * 0.72, ry: legR * 0.88, axis: 'y', furScale: 0.58, coatZ: -0.62, coatYCenter: 0.18, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.30 },
-      // Slender metatarsus down to paw
-      { pos: [0, -backLowerLen * 0.82, hockJut * 0.42], rx: legR * 0.60, ry: legR * 0.64, axis: 'y', furScale: 0.42 + breed.curl * 0.38, coatZ: -0.58, coatYCenter: 0.12, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
-      { pos: [0, -backLowerLen * 1.02, 0.0], rx: legR * 0.62, ry: legR * 0.66, axis: 'y', furScale: 0.32 + breed.curl * 0.32, coatZ: -0.55, coatYCenter: 0.07, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
-    ], 14, lowerBodyFn);
-    addFurredPart(lower, lowerGeo, baseCoatMat, shellFurMat, 16, disposables);
-
-    const paw = new THREE.Group();
+    const paw = new THREE.Bone();
     paw.name = `paw_${label}`;
     paw.position.set(0, -backLowerLen, 0);
     paw.rotation.x = backPawX;
     lower.add(paw);
 
-    const pawWorld = new THREE.Vector3(0, -backLowerLen, 0).applyQuaternion(lQuat).add(stifleWorld);
-    const pawBodyFn = (local, out) => out.copy(local).add(pawWorld);
-    const pawGeo = buildPawGeometry(legR, pawH, false, side, pawBodyFn);
-    addFurredPart(paw, pawGeo, baseCoatMat, shellFurMat, 14, disposables);
+    root.updateMatrixWorld(true);
+
+    const pHp = getBonePos(hip);
+    const pSt = getBonePos(lower);
+    const pPw = getBonePos(paw);
+    const pw = legR * 1.28;
+    const pl = legR * 2.08;
+    const hipTopLift = Math.min(legR * 1.38, pelvisHalfD * 0.56);
+    const hockJut = -Math.min(legR * 1.12, backLowerLen * 0.38);
+
+    const lowerWorldPt = (uFrac, localZ) => {
+      const v = new THREE.Vector3(0, -backLowerLen * uFrac, localZ);
+      lower.localToWorld(v);
+      return [v.x, v.y, v.z];
+    };
+
+    const stations = [
+      // 0. Buried inside pelvis/rump (weighted to pelvis so hip junction never steps or splits)
+      { pos: [pHp.x - side * legR * 0.90, pHp.y + hipTopLift, pHp.z - legR * 0.16], rx: legR * 1.05, ry: legR * 1.95, furScale: 1.04, coatZ: -0.62, coatYCenter: 0.64, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 1. Upper muscular haunch emerging smoothly from rump flank
+      { pos: [pHp.x - side * legR * 0.34, pHp.y + hipTopLift * 0.48, pHp.z - legR * 0.20], rx: legR * 1.50, ry: legR * 2.40, furScale: 1.06, coatZ: -0.63, coatYCenter: 0.58, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.48 },
+      // 2. Hip pivot / broad upper thigh
+      { pos: [pHp.x - side * legR * 0.08, pHp.y, pHp.z - legR * 0.16], rx: legR * 1.68, ry: legR * 2.55, furScale: 1.06, coatZ: -0.64, coatYCenter: 0.50, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.72 },
+      // 3. Mid thigh tapering toward stifle
+      { pos: [pHp.x * 0.48 + pSt.x * 0.52, pHp.y * 0.48 + pSt.y * 0.52, pHp.z * 0.48 + pSt.z * 0.52 - legR * 0.12], rx: legR * 1.42, ry: legR * 1.88, furScale: 0.94, coatZ: -0.58, coatYCenter: 0.38, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.78 },
+      // 4. Stifle (knee) pivot
+      { pos: [pSt.x, pSt.y, pSt.z], rx: legR * 1.14, ry: legR * 1.34, furScale: 0.84, coatZ: -0.52, coatYCenter: 0.30, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.70 },
+      // 5. Muscular gaskin
+      { pos: lowerWorldPt(0.34, hockJut * 0.78), rx: legR * 0.88, ry: legR * 1.06, furScale: 0.72, coatZ: -0.58, coatYCenter: 0.22, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.55 },
+      // 6. Distinct canine hock (tarsus)
+      { pos: lowerWorldPt(0.54, hockJut), rx: legR * 0.72, ry: legR * 0.88, furScale: 0.58, coatZ: -0.62, coatYCenter: 0.18, coatXOffset: 0, coatXSpan: side, coatZone: 3, backFeather: legFeather * 0.30 },
+      // 7. Slender vertical metatarsus
+      { pos: lowerWorldPt(0.80, hockJut * 0.40), rx: legR * 0.60, ry: legR * 0.64, furScale: 0.42 + breed.curl * 0.38, coatZ: -0.58, coatYCenter: 0.12, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 8. Ankle curving smoothly into hind paw
+      { pos: [pPw.x, pPw.y + pawH * 0.12, pPw.z - pl * 0.04], rx: legR * 0.66, ry: legR * 0.68, furScale: 0.30 + breed.curl * 0.30, coatZ: -0.54, coatYCenter: 0.08, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 9. Plump arched mid-paw
+      { pos: [pPw.x, pawH * 0.58, pPw.z + pl * 0.16], rx: pw * 1.04, ry: pawH * 0.58, topFlat: 0.08, bottomFlat: 0.65, sideShiftY: -0.14, furScale: 0.24, coatZ: -0.50, coatYCenter: 0.06, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 10. Rounded toe knuckles
+      { pos: [pPw.x, pawH * 0.50, pPw.z + pl * 0.50], rx: pw * 1.08, ry: pawH * 0.52, topFlat: 0.08, bottomFlat: 0.70, sideShiftY: -0.18, furScale: 0.20, coatZ: -0.46, coatYCenter: 0.05, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 11. Plump rounded toe tips
+      { pos: [pPw.x, pawH * 0.38, pPw.z + pl * 0.76], rx: pw * 0.80, ry: pawH * 0.40, bottomFlat: 0.55, sideShiftY: -0.16, furScale: 0.16, coatZ: -0.44, coatYCenter: 0.04, coatXOffset: 0, coatXSpan: side, coatZone: 3 },
+      // 12. Tip closure
+      { pos: [pPw.x, pawH * 0.24, pPw.z + pl * 0.88], rx: pw * 0.18, ry: pawH * 0.14, furScale: 0.10, coatZ: -0.43, coatYCenter: 0.03, coatXOffset: 0, coatXSpan: side, coatZone: 3, dir: [0, -0.18, 0.98] },
+    ];
+
+    const { rings, stationRingIndex: idx, arcLengths } = resampleSections(
+      stations,
+      [1, 2, 2, 3, 3, 2, 2, 2, 2, 2, 1, 1]
+    );
+    assignLegWeights(rings, arcLengths, arcLengths[idx[2]], arcLengths[idx[4]], arcLengths[idx[8]]);
+
+    const legSkeleton = new THREE.Skeleton([pelvis, hip, upper, lower, paw]);
+    disposables.skeletons.push(legSkeleton);
+    const legGeo = createSkinnedTube(rings, 14, {
+      useCoatYSpan: false,
+      autoCombFromTangent: { t: 0.94, u: -0.32 },
+      postProcess: makePawPostProcess(pPw, pw, pl),
+    });
+    addSkinnedFurredPart(root, legGeo, baseCoatMat, shellFurMat, 16, legSkeleton, disposables);
     addPawPads(paw, legR, pawH, false, padMat, disposables);
 
     return { hip, upper, lower, paw };
@@ -1906,7 +2404,7 @@ export function buildDog(breedInput) {
   const BR = buildBackLeg(-1, 'BR');
 
   // ==========================================================================
-  // 5-Segment Articulated Tail (tail1..tail5)
+  // Continuous 5-Bone Skinned Tail (pelvis -> tail1..tail5)
   // ==========================================================================
   const tailLen = breed.tailLength;
   const segLen = tailLen / 5;
@@ -1935,7 +2433,7 @@ export function buildDog(breedInput) {
   const plumeFeather = breed.tailType === 'plume' ? breed.feathering * 0.72 : (breed.tailType === 'curled' ? 0.32 : 0.0);
 
   for (let i = 0; i < 5; i++) {
-    const tj = new THREE.Group();
+    const tj = new THREE.Bone();
     tj.name = `tail${i + 1}`;
     if (i === 0) {
       tj.position.copy(tailRootPos);
@@ -1947,27 +2445,70 @@ export function buildDog(breedInput) {
     tailParent.add(tj);
     tailJoints.push(tj);
     tailParent = tj;
-
-    const u0 = i / 5;
-    const u1 = (i + 1) / 5;
-    const r0 = tRad * (1.14 - u0 * 0.52) * (breed.id === 'poodle' && i >= 3 ? 1.32 : 1.0);
-    const r1 = tRad * (1.14 - u1 * 0.62) * (breed.id === 'poodle' && i >= 3 ? 1.28 : 1.0);
-    const segFur0 = THREE.MathUtils.lerp(0.88, tFluff, Math.sin(Math.min(1, u0 + 0.15) * Math.PI * 0.85));
-    const segFur1 = THREE.MathUtils.lerp(0.88, tFluff, Math.sin(Math.min(1, u1 + 0.10) * Math.PI * 0.85));
-
-    const segBodyFn = (local, out) => {
-      out.set(local.x, pelvisY + tailRootPos.y + local.y, neutralPelvisPos.z + tailRootPos.z - i * segLen + local.z);
-    };
-
-    const segSections = [
-      { pos: [0, 0, segLen * 0.22], rx: r0 * 0.96, ry: r0 * 0.96, furScale: segFur0, coatZ: -0.25 - u0 * 0.72, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.28, coatZone: 4, combDir: [0, -0.35, -0.92], bottomFeather: plumeFeather },
-      { pos: [0, 0, -segLen * 0.45], rx: (r0 + r1) * 0.52, ry: (r0 + r1) * 0.52, furScale: (segFur0 + segFur1) * 0.52, coatZ: -0.25 - (u0 + u1) * 0.36, coatYCenter: 0.56, coatYSpan: 0.24, coatXSpan: 0.24, coatZone: 4, combDir: [0, -0.40, -0.90], bottomFeather: plumeFeather * 1.05 },
-      { pos: [0, 0, -segLen * (i === 4 ? 1.08 : 1.14)], rx: i === 4 ? r1 * 0.24 : r1 * 0.92, ry: i === 4 ? r1 * 0.24 : r1 * 0.92, furScale: i === 4 ? segFur1 * 0.78 : segFur1, coatZ: -0.25 - u1 * 0.75, coatYCenter: 0.54, coatYSpan: 0.20, coatXSpan: 0.18, coatZone: 4, combDir: [0, -0.35, -0.92], bottomFeather: plumeFeather * (i === 4 ? 0.55 : 0.95) },
-    ];
-
-    const segGeo = createOrganicLoft(segSections, 14, segBodyFn);
-    addFurredPart(tj, segGeo, baseCoatMat, shellFurMat, 16, disposables);
   }
+
+  root.updateMatrixWorld(true);
+
+  const tailAnchorVec = tailJoints[0].localToWorld(new THREE.Vector3(0, 0, Math.min(segLen * 0.48, B * 0.07)));
+  const tailNearTipVec = tailJoints[4].localToWorld(new THREE.Vector3(0, 0, -segLen * 0.72));
+  const tailTipVec = tailJoints[4].localToWorld(new THREE.Vector3(0, 0, -segLen * 1.06));
+
+  const tailRadiusAt = (u) => {
+    const pom = (breed.id === 'poodle' && u >= 0.55) ? (1.0 + 0.34 * Math.sin(((u - 0.55) / 0.45) * Math.PI * 0.85)) : 1.0;
+    return tRad * (1.14 - u * 0.58) * pom;
+  };
+  const tailFurAt = (u) => THREE.MathUtils.lerp(0.88, tFluff, Math.sin(Math.min(1, u + 0.12) * Math.PI * 0.85));
+
+  const tailStations = [
+    // 0. Buried inside rump (weighted to pelvis for seamless tail-root blend)
+    { pos: [tailAnchorVec.x, tailAnchorVec.y, tailAnchorVec.z], rx: tRad * 1.24, ry: tRad * 1.24, furScale: 0.92, coatZ: -0.22, coatYCenter: 0.58, coatYSpan: 0.24, coatXSpan: 0.30, coatZone: 4, bottomFeather: plumeFeather * 0.5 },
+  ];
+  for (let i = 0; i < 5; i++) {
+    const u = i / 5;
+    const p = getBonePos(tailJoints[i]);
+    const r = tailRadiusAt(u);
+    tailStations.push({
+      pos: [p.x, p.y, p.z],
+      rx: r,
+      ry: r,
+      furScale: tailFurAt(u),
+      coatZ: -0.25 - u * 0.72,
+      coatYCenter: 0.58 - u * 0.04,
+      coatYSpan: 0.24 - u * 0.02,
+      coatXSpan: 0.28 - u * 0.08,
+      coatZone: 4,
+      bottomFeather: plumeFeather * (0.95 + 0.10 * Math.sin(u * Math.PI)),
+    });
+  }
+  const rNearTip = tailRadiusAt(0.94) * 0.82;
+  tailStations.push(
+    { pos: [tailNearTipVec.x, tailNearTipVec.y, tailNearTipVec.z], rx: rNearTip, ry: rNearTip, furScale: tailFurAt(0.94), coatZ: -0.94, coatYCenter: 0.54, coatYSpan: 0.20, coatXSpan: 0.18, coatZone: 4, bottomFeather: plumeFeather * 0.75 },
+    { pos: [tailTipVec.x, tailTipVec.y, tailTipVec.z], rx: tRad * 0.16, ry: tRad * 0.16, furScale: tailFurAt(1.0) * 0.78, coatZ: -1.00, coatYCenter: 0.54, coatYSpan: 0.16, coatXSpan: 0.14, coatZone: 4, bottomFeather: plumeFeather * 0.40 }
+  );
+
+  const { rings: tailRings, stationRingIndex: tailIdx, arcLengths: tailArcs } = resampleSections(
+    tailStations,
+    [2, 3, 3, 3, 3, 2, 1]
+  );
+  assignChainWeights(
+    tailRings,
+    tailArcs,
+    [
+      tailArcs[tailIdx[1]],
+      tailArcs[tailIdx[2]],
+      tailArcs[tailIdx[3]],
+      tailArcs[tailIdx[4]],
+      tailArcs[tailIdx[5]],
+    ],
+    0.06
+  );
+  const tailSkeleton = new THREE.Skeleton([pelvis, ...tailJoints]);
+  disposables.skeletons.push(tailSkeleton);
+  const tailGeo = createSkinnedTube(tailRings, 12, {
+    invertU: true,
+    autoCombFromTangent: { t: 0.92, u: 0.35 },
+  });
+  addSkinnedFurredPart(root, tailGeo, baseCoatMat, shellFurMat, 16, tailSkeleton, disposables);
 
   // ==========================================================================
   // Joints Dictionary & Metrics for Animator
@@ -2068,9 +2609,11 @@ export function buildDog(breedInput) {
     for (const g of disposables.geometries) g.dispose();
     for (const m of disposables.materials) m.dispose();
     for (const t of disposables.textures) t.dispose();
+    for (const s of disposables.skeletons) s.dispose();
     disposables.geometries.length = 0;
     disposables.materials.length = 0;
     disposables.textures.length = 0;
+    disposables.skeletons.length = 0;
   }
 
   return {
