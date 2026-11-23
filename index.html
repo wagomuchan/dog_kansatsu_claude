@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="庭で気ままに暮らす一匹の犬を静かに見守る観察サイト" />
+  <meta name="description" content="庭で気ままに暮らす犬を静かに見守る観察サイト" />
   <title>庭の犬観察</title>
   <link
     rel="icon"
@@ -30,10 +30,17 @@
           </span>
         </div>
 
-        <div class="glass-panel action-panel">
-          <span class="action-dot" aria-hidden="true"></span>
-          <span class="action-prefix">いま:</span>
-          <span id="action-text" class="action-text">のんびりしています</span>
+        <div id="action-panel" class="glass-panel action-panel">
+          <div id="action-row-1" class="action-row">
+            <span class="action-dot" aria-hidden="true"></span>
+            <span id="action-prefix-1" class="action-prefix">いま:</span>
+            <span id="action-text" class="action-text">のんびりしています</span>
+          </div>
+          <div id="action-row-2" class="action-row action-row-secondary" hidden>
+            <span class="action-dot action-dot-2" aria-hidden="true"></span>
+            <span id="action-prefix-2" class="action-prefix"></span>
+            <span id="action-text-2" class="action-text"></span>
+          </div>
         </div>
       </div>
 
@@ -50,11 +57,37 @@
         </button>
       </div>
 
-      <div class="hud-bottom-right">
-        <label class="glass-panel breed-panel" for="breed-select">
-          <span class="breed-label">犬種</span>
-          <select id="breed-select" class="breed-select" aria-label="犬種を選ぶ"></select>
-        </label>
+      <div id="hud-bottom-right" class="hud-bottom-right">
+        <div class="glass-panel count-panel">
+          <span class="breed-label">頭数</span>
+          <div class="count-toggle" role="group" aria-label="頭数を選ぶ">
+            <button
+              id="count-btn-1"
+              class="count-btn is-active"
+              type="button"
+              data-count="1"
+              aria-pressed="true"
+            >1匹</button>
+            <button
+              id="count-btn-2"
+              class="count-btn"
+              type="button"
+              data-count="2"
+              aria-pressed="false"
+            >2匹</button>
+          </div>
+        </div>
+
+        <div class="breed-panels">
+          <label id="breed-panel-1" class="glass-panel breed-panel" for="breed-select">
+            <span id="breed-label-1" class="breed-label">犬種</span>
+            <select id="breed-select" class="breed-select" aria-label="1匹目の犬種を選ぶ"></select>
+          </label>
+          <label id="breed-panel-2" class="glass-panel breed-panel" for="breed-select-2" hidden>
+            <span id="breed-label-2" class="breed-label">2匹目</span>
+            <select id="breed-select-2" class="breed-select" aria-label="2匹目の犬種を選ぶ"></select>
+          </label>
+        </div>
       </div>
     </div>
 

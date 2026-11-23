@@ -1,0 +1,4 @@
+- [index.html](file:///home/user/dog_kansatsu_claude/index.html) / [style.css](file:///home/user/dog_kansatsu_claude/style.css): 右下に「頭数（1匹/2匹）」切替と2匹目用の犬種セレクト、左上に2行対応の行動表示を追加（スマホ対応維持）。
+- [src/ui.js](file:///home/user/dog_kansatsu_claude/src/ui.js): 頭数・2匹の犬種セレクト制御と、2匹時の2行行動表示（「犬種: 行動」）および2匹の共同行動1行まとめ表示を実装。
+- [src/main.js](file:///home/user/dog_kansatsu_claude/src/main.js): `dogs` 配列管理・頭数/両犬種の `localStorage` 保存（2匹目初期値は別犬種）・1匹目を保ったまま2〜3m先の歩ける点への2匹目追加/削除・`ctx.others` と `id` 設定・両犬の `playDogEvent` 音配線を実装。
+- [src/camera.js](file:///home/user/dog_kansatsu_claude/src/camera.js): 1匹モードを維持しつつ、2匹が6m以内のときは中間点を狙って2匹とも収まる距離へ引き、離れているときは動きの大きい方または数十秒ごとの交代で滑らかに追従するよう拡張。

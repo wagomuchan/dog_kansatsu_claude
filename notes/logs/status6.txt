@@ -1,0 +1,2 @@
+A6 exit 0
+D6 exit 0

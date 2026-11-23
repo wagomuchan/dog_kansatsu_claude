@@ -2,9 +2,13 @@ import * as THREE from 'three';
 
 const MIN_DIST = 2.5;
 const MAX_DIST = 7.0;
+const MAX_PAIR_DIST = 10.5;
 const MIN_AVOID_DIST = 1.65;
 const MIN_HEIGHT = 0.6;
 const MAX_HEIGHT = 2.5;
+const MAX_PAIR_HEIGHT = 3.2;
+const PAIR_ENTER_DIST = 6.0;
+const PAIR_EXIT_DIST = 6.6;
 const DEFAULT_GARDEN_LIMIT = 14.1;
 const CAM_CLEARANCE = 0.45;
 const SUBBOX_CELL_SIZE = 4.0;
@@ -214,10 +218,21 @@ export class FollowCamera {
 
     this._elapsed = 0;
 
+    // 2匹モード用の状態管理（各犬の速度・活動量・フォーカス切替）
+    this._dogStates = new WeakMap();
+    this._activeDogs = [];
+    this._lastDogCount = 0;
+    this._inPairMode = false;
+    this._focusIndex = 0;
+    this._focusTimer = 24 + Math.random() * 14;
+    this._focusHoldMin = 0;
+    this._switchTransitionTimer = 0;
+
     // シーン参照 & レイキャスト用オクルーダーキャッシュ
     this._scene = null;
     this._occluders = [];
     this._cachedSceneChildCount = -1;
+    this._cachedDogRoots = [];
     this._lastCacheBuildTime = -10;
     this._raycaster = new THREE.Raycaster();
     this._rayHits = [];
@@ -229,7 +244,12 @@ export class FollowCamera {
     this._tmpDesiredPos = new THREE.Vector3();
     this._tmpDesiredLook = new THREE.Vector3();
     this._tmpDogPos = new THREE.Vector3();
+    this._tmpDogPos2 = new THREE.Vector3();
+    this._tmpMidPos = new THREE.Vector3();
     this._tmpDogTarget = new THREE.Vector3();
+    this._tmpExtraTarget0 = new THREE.Vector3();
+    this._tmpExtraTarget1 = new THREE.Vector3();
+    this._tmpExtraTargets = [this._tmpExtraTarget0, this._tmpExtraTarget1];
     this._tmpSafePos = new THREE.Vector3();
     this._tmpCandPos = new THREE.Vector3();
     this._tmpRayDir = new THREE.Vector3();
@@ -245,15 +265,122 @@ export class FollowCamera {
     );
   }
 
-  update(realDt, dog) {
-    if (!dog || !dog.position) return;
+  getLookAtPosition() {
+    return this._currentLookAt;
+  }
+
+  _normalizeDogs(dogOrDogs) {
+    const out = this._activeDogs;
+    out.length = 0;
+    if (Array.isArray(dogOrDogs)) {
+      for (let i = 0; i < dogOrDogs.length; i++) {
+        const d = dogOrDogs[i];
+        if (d && d.position) out.push(d);
+      }
+    } else if (dogOrDogs && dogOrDogs.position) {
+      out.push(dogOrDogs);
+    }
+    return out;
+  }
+
+  _computeActivityScore(dog, speed) {
+    const id = (dog.action?.id || '').toLowerCase();
+    const label = dog.action?.label || '';
+    const text = `${id} ${label}`;
+
+    let actionWeight = 0.6;
+    if (
+      /run|dash|zoomie|sprint|gallop|chase|pounce|jump|wrestle|tug|bark|howl|dig|play|追いかけ|取っ組み|じゃれ|全力|ダッシュ|はしゃ|ズーミー|吠|遠吠|掘|ボール/.test(
+        text
+      )
+    ) {
+      actionWeight = 2.6;
+    } else if (
+      /walk|sniff|eat|drink|scratch|shake|stretch|roll|butterfly|bird|pond|mark|greet|groom|歩|匂|食べ|飲|かいて|ブルブル|伸び|転が|蝶|鳥|池|マーキング|あいさつ|舐め/.test(
+        text
+      )
+    ) {
+      actionWeight = 1.15;
+    } else if (
+      /sleep|nap|curl|belly|snooze|rest|lie|doze|sunbathe|shade|porch|寝|昼寝|眠|うたた|日なた|日陰|縁側|伏せ|くつろ/.test(
+        text
+      ) &&
+      speed < 0.25
+    ) {
+      actionWeight = 0.0;
+    }
+
+    return speed * 1.35 + actionWeight;
+  }
+
+  _updateDogMotionState(dog, dt) {
+    let st = this._dogStates.get(dog);
+    const px = dog.position.x || 0;
+    const py = dog.position.y || 0;
+    const pz = dog.position.z || 0;
+
+    if (!st) {
+      st = {
+        prevPos: new THREE.Vector3(px, py, pz),
+        vel: new THREE.Vector3(),
+        smoothedSpeed: 0,
+        activityScore: this._computeActivityScore(dog, 0),
+        initialized: false,
+      };
+      this._dogStates.set(dog, st);
+    }
+
+    if (st.initialized) {
+      const vx = (px - st.prevPos.x) / dt;
+      const vy = (py - st.prevPos.y) / dt;
+      const vz = (pz - st.prevPos.z) / dt;
+      const alpha = 1 - Math.exp(-5.0 * dt);
+      st.vel.x += (vx - st.vel.x) * alpha;
+      st.vel.y += (vy - st.vel.y) * alpha;
+      st.vel.z += (vz - st.vel.z) * alpha;
+      const horizSpeed = Math.hypot(st.vel.x, st.vel.z);
+      st.smoothedSpeed += (horizSpeed - st.smoothedSpeed) * (1 - Math.exp(-3.5 * dt));
+
+      const rawActivity = this._computeActivityScore(dog, st.smoothedSpeed);
+      st.activityScore += (rawActivity - st.activityScore) * (1 - Math.exp(-0.9 * dt));
+    } else {
+      st.initialized = true;
+    }
+
+    st.prevPos.set(px, py, pz);
+    return st;
+  }
+
+  update(realDt, dogOrDogs) {
+    const dogs = this._normalizeDogs(dogOrDogs);
+    if (dogs.length === 0) return;
 
     const dt = clamp(Number.isFinite(realDt) ? realDt : 0.016, 0.0001, 0.1);
     this._elapsed += dt;
 
-    // シーン解決とレイキャスト対象のキャッシュ更新
-    this._ensureOccluders(dog);
+    if (this._lastDogCount !== 0 && this._lastDogCount !== dogs.length) {
+      this._switchTransitionTimer = Math.max(this._switchTransitionTimer, 1.8);
+    }
+    this._lastDogCount = dogs.length;
+    this._switchTransitionTimer = Math.max(0, this._switchTransitionTimer - dt);
 
+    // シーン解決とレイキャスト対象のキャッシュ更新（全犬を除外）
+    this._ensureOccluders(dogs);
+
+    // 各犬の速度・活動量を更新
+    for (let i = 0; i < dogs.length; i++) {
+      this._updateDogMotionState(dogs[i], dt);
+    }
+
+    if (dogs.length === 1) {
+      this._updateSingleDog(dt, dogs[0], dogs);
+    } else {
+      this._updateTwoDogs(dt, dogs);
+    }
+  }
+
+  _updateSingleDog(dt, dog, allDogs) {
+    const st = this._dogStates.get(dog);
     const dogPos = this._tmpDogPos.set(
       dog.position.x || 0,
       dog.position.y || 0,
@@ -261,17 +388,9 @@ export class FollowCamera {
     );
     const dogHeading = Number.isFinite(dog.heading) ? dog.heading : 0;
 
-    // 犬の移動速度を推定（滑らかに平滑化）
-    if (this._initialized) {
-      const vx = (dogPos.x - this._prevDogPos.x) / dt;
-      const vy = (dogPos.y - this._prevDogPos.y) / dt;
-      const vz = (dogPos.z - this._prevDogPos.z) / dt;
-      const alpha = 1 - Math.exp(-5.0 * dt);
-      this._dogVel.x += (vx - this._dogVel.x) * alpha;
-      this._dogVel.y += (vy - this._dogVel.y) * alpha;
-      this._dogVel.z += (vz - this._dogVel.z) * alpha;
-      const horizSpeed = Math.hypot(this._dogVel.x, this._dogVel.z);
-      this._smoothedSpeed += (horizSpeed - this._smoothedSpeed) * (1 - Math.exp(-3.5 * dt));
+    if (st) {
+      this._dogVel.copy(st.vel);
+      this._smoothedSpeed = st.smoothedSpeed;
     }
     this._prevDogPos.copy(dogPos);
 
@@ -362,8 +481,11 @@ export class FollowCamera {
       this._orbitAngle,
       this._dist,
       this._height,
-      dog,
-      dogInDoghouse
+      allDogs,
+      dogInDoghouse,
+      MAX_DIST,
+      MAX_HEIGHT,
+      null
     );
 
     // 回避で方位が変わった場合は軌道角・ドリフトにも滑らかに馴染ませて障害物へ押し戻されないようにする
@@ -393,6 +515,7 @@ export class FollowCamera {
       dogPos.z + leadZ
     );
 
+    const isTransitioning = this._switchTransitionTimer > 0;
     if (!this._initialized) {
       this._currentPos.copy(this._tmpDesiredPos);
       this._currentLookAt.copy(this._tmpDesiredLook);
@@ -407,16 +530,20 @@ export class FollowCamera {
         dogPos,
         dogGroundY,
         dogTarget,
-        dog,
-        dogInDoghouse
+        allDogs,
+        dogInDoghouse,
+        MAX_DIST,
+        MAX_HEIGHT
       );
 
-      const posSmoothTime = profile.isRunning
-        ? 0.52
-        : safePlacement.adjusted || detour
-          ? 0.65
-          : 1.02;
-      const lookSmoothTime = profile.isRunning ? 0.28 : 0.45;
+      const posSmoothTime = isTransitioning
+        ? 1.15
+        : profile.isRunning
+          ? 0.52
+          : safePlacement.adjusted || detour
+            ? 0.65
+            : 1.02;
+      const lookSmoothTime = isTransitioning ? 0.68 : profile.isRunning ? 0.28 : 0.45;
 
       smoothDampVec3(this._currentPos, this._tmpDesiredPos, this._posVel, posSmoothTime, dt);
       smoothDampVec3(this._currentLookAt, this._tmpDesiredLook, this._lookVel, lookSmoothTime, dt);
@@ -424,7 +551,272 @@ export class FollowCamera {
 
     // 最終安全ガード: 移動途中でも物体内部・枝葉・地面下・柵外へ入らないようにし、視線遮蔽なら手前へ寄せる
     this._enforceCameraClearance(this._currentPos, dogGroundY, dogInDoghouse);
-    this._applySpringArmPullIn(dogTarget, this._currentPos, dog, dogInDoghouse, dt);
+    this._applySpringArmPullIn(dogTarget, this._currentPos, allDogs, dogInDoghouse, dt, isTransitioning);
+
+    this.camera.position.copy(this._currentPos);
+    this.camera.lookAt(this._currentLookAt);
+  }
+
+  _updateTwoDogs(dt, dogs) {
+    const dog0 = dogs[0];
+    const dog1 = dogs[1];
+    const st0 = this._dogStates.get(dog0);
+    const st1 = this._dogStates.get(dog1);
+
+    const p0 = this._tmpDogPos.set(dog0.position.x || 0, dog0.position.y || 0, dog0.position.z || 0);
+    const p1 = this._tmpDogPos2.set(dog1.position.x || 0, dog1.position.y || 0, dog1.position.z || 0);
+    const pairDist = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+
+    // ヒステリシス付きで「2匹まとめ撮り(6m以内)」と「1匹フォーカス」を判定
+    const prevPairMode = this._inPairMode;
+    if (!this._initialized) {
+      this._inPairMode = pairDist <= PAIR_ENTER_DIST;
+    } else if (this._inPairMode) {
+      if (pairDist > PAIR_EXIT_DIST) {
+        this._inPairMode = false;
+      }
+    } else if (pairDist <= PAIR_ENTER_DIST) {
+      this._inPairMode = true;
+    }
+
+    if (this._initialized && prevPairMode !== this._inPairMode) {
+      this._switchTransitionTimer = Math.max(this._switchTransitionTimer, 1.8);
+      if (!this._inPairMode) {
+        // 離れた瞬間は動きのある方へ自然にフォーカス
+        const act0 = st0?.activityScore ?? 0;
+        const act1 = st1?.activityScore ?? 0;
+        this._focusIndex = act1 > act0 + 0.35 ? 1 : 0;
+        this._focusHoldMin = 5.0;
+        this._focusTimer = 24 + Math.random() * 14;
+      }
+    }
+
+    if (!this._inPairMode) {
+      // 離れているとき: より動きのある方、または数十秒ごとに交代してなめらかに追う
+      this._focusTimer -= dt;
+      this._focusHoldMin = Math.max(0, this._focusHoldMin - dt);
+
+      const curIdx = this._focusIndex === 1 ? 1 : 0;
+      const otherIdx = 1 - curIdx;
+      const curAct = (curIdx === 0 ? st0?.activityScore : st1?.activityScore) ?? 0;
+      const otherAct = (otherIdx === 0 ? st0?.activityScore : st1?.activityScore) ?? 0;
+
+      const otherMuchMoreActive = this._focusHoldMin <= 0 && otherAct > curAct + 1.15;
+      const timerExpired = this._focusTimer <= 0;
+
+      if (otherMuchMoreActive || timerExpired) {
+        this._focusIndex = otherIdx;
+        this._focusHoldMin = 7.0;
+        this._focusTimer = 24 + Math.random() * 16;
+        this._switchTransitionTimer = 2.6;
+      }
+
+      this._updateSingleDog(dt, dogs[this._focusIndex], dogs);
+      return;
+    }
+
+    // 2匹が近い（6m以内）とき: 中間点を狙って2匹とも画面に入る距離へ引く
+    const s0 = st0?.smoothedSpeed ?? 0;
+    const s1 = st1?.smoothedSpeed ?? 0;
+    const prof0 = this._classifyBehavior(dog0, s0);
+    const prof1 = this._classifyBehavior(dog1, s1);
+
+    const profile = {
+      baseDist: Math.max(prof0.baseDist, prof1.baseDist),
+      baseHeight: Math.max(prof0.baseHeight, prof1.baseHeight),
+      lookHeight: (prof0.lookHeight + prof1.lookHeight) * 0.5,
+      isRunning: prof0.isRunning || prof1.isRunning,
+      holdAngle: false,
+      preferClose: prof0.preferClose && prof1.preferClose,
+    };
+
+    this._presetTimer -= dt;
+    if (this._presetTimer <= 0) {
+      this._pickNextPreset(profile);
+      this._presetTimer = 24 + Math.random() * 18;
+    }
+
+    const preset = ANGLE_PRESETS[this._presetIndex];
+    this._orbitDrift += 0.03 * preset.orbitDir * dt;
+
+    const midPos = this._tmpMidPos.set(
+      (p0.x + p1.x) * 0.5,
+      (p0.y + p1.y) * 0.5,
+      (p0.z + p1.z) * 0.5
+    );
+
+    // 2匹を結ぶ線に対して斜め横〜直角方向から撮ると重なりにくく2匹ともよく見える
+    const dxPair = p1.x - p0.x;
+    const dzPair = p1.z - p0.z;
+    const avgHeading = lerpAngle(
+      Number.isFinite(dog0.heading) ? dog0.heading : 0,
+      Number.isFinite(dog1.heading) ? dog1.heading : 0,
+      0.5
+    );
+    let desiredAzimuth;
+    if (pairDist > 0.45) {
+      const lineAngle = Math.atan2(dxPair, dzPair);
+      const perpA = wrapAngle(lineAngle + Math.PI * 0.5);
+      const perpB = wrapAngle(lineAngle - Math.PI * 0.5);
+      const basePerp =
+        Math.abs(wrapAngle(perpA - this._orbitAngle)) <= Math.abs(wrapAngle(perpB - this._orbitAngle))
+          ? perpA
+          : perpB;
+      const presetTilt = clamp(wrapAngle(preset.relAngle) * 0.22, -0.42, 0.42);
+      desiredAzimuth = wrapAngle(basePerp + presetTilt + Math.sin(this._orbitDrift) * 0.28);
+    } else {
+      desiredAzimuth = avgHeading + preset.relAngle + this._orbitDrift;
+    }
+
+    // FOVとアスペクト比から2匹が画面に収まる必要距離を算出
+    const fovRad = THREE.MathUtils.degToRad(clamp(this.camera?.fov || 44, 25, 75));
+    const tanHalfFovY = Math.tan(fovRad * 0.5);
+    const aspect = clamp(this.camera?.aspect || 16 / 9, 0.45, 2.6);
+    const tanHalfFovX = tanHalfFovY * aspect;
+    const evalAz = this._initialized ? this._orbitAngle : desiredAzimuth;
+    const projHoriz = Math.abs(dxPair * Math.cos(evalAz) - dzPair * Math.sin(evalAz));
+    const projDepth = Math.abs(dxPair * Math.sin(evalAz) + dzPair * Math.cos(evalAz));
+
+    const halfWidthNeeded = projHoriz * 0.5 + 0.82;
+    const distForWidth = halfWidthNeeded / Math.max(0.15, tanHalfFovX * 0.72) + projDepth * 0.48;
+    const distForHeight = (0.85 + pairDist * 0.14) / Math.max(0.15, tanHalfFovY * 0.72);
+    const basePairDist = Math.max(
+      profile.baseDist * preset.distMul + pairDist * 0.25,
+      distForWidth,
+      distForHeight
+    );
+
+    let targetDist = clamp(basePairDist, MIN_DIST, MAX_PAIR_DIST);
+    let targetHeight = clamp(
+      Math.max(profile.baseHeight * preset.heightMul, 0.92 + targetDist * 0.2),
+      MIN_HEIGHT,
+      MAX_PAIR_HEIGHT
+    );
+    const targetLookHeight = profile.lookHeight;
+
+    // どちらかが犬小屋内にいて2匹とも小屋付近なら入口方向へ穏やかに誘導
+    const inDh0 = this._isDogInDoghouse(p0);
+    const inDh1 = this._isDogInDoghouse(p1);
+    const dogInDoghouse = inDh0 || inDh1;
+    let doghouseBias = null;
+    if (dogInDoghouse && pairDist < 3.8) {
+      doghouseBias = this._getDoghouseEntranceAzimuth(inDh0 ? p0 : p1);
+      if (doghouseBias !== null) {
+        desiredAzimuth = doghouseBias + Math.sin(this._elapsed * 0.14) * 0.22;
+        targetHeight = clamp(Math.min(targetHeight, 1.55), MIN_HEIGHT, MAX_PAIR_HEIGHT);
+      }
+    }
+
+    if (!this._initialized) {
+      this._orbitAngle = desiredAzimuth;
+      this._dist = targetDist;
+      this._height = targetHeight;
+      this._lookHeight = targetLookHeight;
+      this._avoidDir = preset.orbitDir >= 0 ? 1 : -1;
+    } else {
+      const azFollow = profile.isRunning ? 0.5 : 0.34;
+      this._orbitAngle = lerpAngle(
+        this._orbitAngle,
+        desiredAzimuth,
+        1 - Math.exp(-azFollow * dt)
+      );
+      this._dist = smoothDampScalar(this._dist, targetDist, this._scalarVel, 'dist', 1.4, dt);
+      this._height = smoothDampScalar(this._height, targetHeight, this._scalarVel, 'height', 1.4, dt);
+      this._lookHeight = smoothDampScalar(
+        this._lookHeight,
+        targetLookHeight,
+        this._scalarVel,
+        'lookHeight',
+        1.1,
+        dt
+      );
+    }
+
+    const gY0 = this._getGroundY(p0.x, p0.z);
+    const gY1 = this._getGroundY(p1.x, p1.z);
+    const midGroundY = Math.max(this._getGroundY(midPos.x, midPos.z), (gY0 + gY1) * 0.5);
+    const midBaseY = Math.max(midPos.y, midGroundY);
+    const midTarget = this._tmpDogTarget.set(
+      midPos.x,
+      midBaseY + Math.max(0.32, this._lookHeight),
+      midPos.z
+    );
+
+    this._tmpExtraTarget0.set(p0.x, Math.max(p0.y, gY0) + Math.max(0.3, prof0.lookHeight), p0.z);
+    this._tmpExtraTarget1.set(p1.x, Math.max(p1.y, gY1) + Math.max(0.3, prof1.lookHeight), p1.z);
+
+    const safePlacement = this._findSafeCameraPos(
+      midPos,
+      midGroundY,
+      midTarget,
+      this._orbitAngle,
+      this._dist,
+      this._height,
+      dogs,
+      dogInDoghouse,
+      MAX_PAIR_DIST,
+      MAX_PAIR_HEIGHT,
+      this._tmpExtraTargets
+    );
+
+    if (safePlacement.adjusted) {
+      const azDelta = wrapAngle(safePlacement.azimuth - this._orbitAngle);
+      if (Math.abs(azDelta) > 0.08) {
+        this._avoidDir = azDelta >= 0 ? 1 : -1;
+      }
+      const blend = 1 - Math.exp(-1.8 * dt);
+      this._orbitAngle = lerpAngle(this._orbitAngle, safePlacement.azimuth, blend);
+    }
+
+    this._tmpDesiredPos.copy(safePlacement.pos);
+
+    const midVx = ((st0?.vel.x || 0) + (st1?.vel.x || 0)) * 0.5;
+    const midVz = ((st0?.vel.z || 0) + (st1?.vel.z || 0)) * 0.5;
+    const midSpeed = Math.hypot(midVx, midVz);
+    const leadAmount = clamp(midSpeed * 0.14, 0, 0.65);
+    const speedNorm = midSpeed > 0.05 ? 1 / midSpeed : 0;
+
+    this._tmpDesiredLook.set(
+      midPos.x + midVx * speedNorm * leadAmount,
+      midBaseY + this._lookHeight,
+      midPos.z + midVz * speedNorm * leadAmount
+    );
+
+    const isTransitioning = this._switchTransitionTimer > 0;
+    if (!this._initialized) {
+      this._currentPos.copy(this._tmpDesiredPos);
+      this._currentLookAt.copy(this._tmpDesiredLook);
+      this._posVel.set(0, 0, 0);
+      this._lookVel.set(0, 0, 0);
+      this._initialized = true;
+    } else {
+      const detour = this._computeArcDetourIfBlocked(
+        this._currentPos,
+        this._tmpDesiredPos,
+        midPos,
+        midGroundY,
+        midTarget,
+        dogs,
+        dogInDoghouse,
+        MAX_PAIR_DIST,
+        MAX_PAIR_HEIGHT
+      );
+
+      const posSmoothTime = isTransitioning
+        ? 1.05
+        : profile.isRunning
+          ? 0.55
+          : safePlacement.adjusted || detour
+            ? 0.68
+            : 1.0;
+      const lookSmoothTime = isTransitioning ? 0.6 : profile.isRunning ? 0.3 : 0.46;
+
+      smoothDampVec3(this._currentPos, this._tmpDesiredPos, this._posVel, posSmoothTime, dt);
+      smoothDampVec3(this._currentLookAt, this._tmpDesiredLook, this._lookVel, lookSmoothTime, dt);
+    }
+
+    this._enforceCameraClearance(this._currentPos, midGroundY, dogInDoghouse);
+    this._applySpringArmPullIn(midTarget, this._currentPos, dogs, dogInDoghouse, dt, isTransitioning);
 
     this.camera.position.copy(this._currentPos);
     this.camera.lookAt(this._currentLookAt);
@@ -565,7 +957,7 @@ export class FollowCamera {
   // ==========================================================================
   // シーン解決・オクルーダーキャッシュ・レイキャスト
   // ==========================================================================
-  _resolveScene(dog) {
+  _resolveScene(dogs) {
     // 1. camera.parent をルートまで辿る
     let cur = this.camera?.parent || null;
     while (cur) {
@@ -577,34 +969,52 @@ export class FollowCamera {
       return this.garden.scene;
     }
     // 3. dog.scene または dog.root の親チェーン
-    if (dog?.scene && Array.isArray(dog.scene.children)) {
-      return dog.scene;
-    }
-    cur = dog?.root?.parent || dog?.body?.root?.parent || null;
-    while (cur) {
-      if (cur.isScene) return cur;
-      cur = cur.parent || null;
+    const list = Array.isArray(dogs) ? dogs : dogs ? [dogs] : [];
+    for (let i = 0; i < list.length; i++) {
+      const dog = list[i];
+      if (dog?.scene && Array.isArray(dog.scene.children)) {
+        return dog.scene;
+      }
+      cur = dog?.root?.parent || dog?.body?.root?.parent || null;
+      while (cur) {
+        if (cur.isScene) return cur;
+        cur = cur.parent || null;
+      }
     }
     return null;
   }
 
-  _ensureOccluders(dog) {
-    const scene = this._resolveScene(dog);
+  _haveDogRootsChanged(dogs) {
+    const list = Array.isArray(dogs) ? dogs : dogs ? [dogs] : [];
+    if (list.length !== this._cachedDogRoots.length) return true;
+    for (let i = 0; i < list.length; i++) {
+      const root = list[i]?.root || list[i]?.body?.root || null;
+      if (root !== this._cachedDogRoots[i]) return true;
+    }
+    return false;
+  }
+
+  _ensureOccluders(dogs) {
+    const scene = this._resolveScene(dogs);
     if (!scene) return;
     this._scene = scene;
 
     const childCount = scene.children.length;
+    const rootsChanged = this._haveDogRootsChanged(dogs);
     if (
-      this._cachedSceneChildCount !== childCount &&
-      (this._cachedSceneChildCount === -1 || this._elapsed - this._lastCacheBuildTime > 0.5)
+      (this._cachedSceneChildCount !== childCount || rootsChanged) &&
+      (this._cachedSceneChildCount === -1 || rootsChanged || this._elapsed - this._lastCacheBuildTime > 0.5)
     ) {
-      this._rebuildOccluders(scene, dog);
+      this._rebuildOccluders(scene, dogs);
       this._cachedSceneChildCount = childCount;
+      this._cachedDogRoots = (Array.isArray(dogs) ? dogs : dogs ? [dogs] : []).map(
+        (d) => d?.root || d?.body?.root || null
+      );
       this._lastCacheBuildTime = this._elapsed;
     }
   }
 
-  _buildExcludedSet(dog) {
+  _buildExcludedSet(dogs) {
     const excluded = new Set();
     const g = this.garden;
     if (g) {
@@ -647,15 +1057,18 @@ export class FollowCamera {
       }
     }
 
-    const dogRoot = dog?.root || dog?.body?.root;
-    if (dogRoot) excluded.add(dogRoot);
+    const list = Array.isArray(dogs) ? dogs : dogs ? [dogs] : [];
+    for (let i = 0; i < list.length; i++) {
+      const dogRoot = list[i]?.root || list[i]?.body?.root;
+      if (dogRoot) excluded.add(dogRoot);
+    }
 
     return excluded;
   }
 
-  _rebuildOccluders(scene, dog) {
+  _rebuildOccluders(scene, dogs) {
     this._occluders.length = 0;
-    const excluded = this._buildExcludedSet(dog);
+    const excluded = this._buildExcludedSet(dogs);
     const waterMat = this.garden?._waterMat || null;
 
     scene.updateMatrixWorld(true);
@@ -778,11 +1191,24 @@ export class FollowCamera {
     return false;
   }
 
+  _isDescendantOfAnyDog(obj, dogs) {
+    if (!dogs) return false;
+    if (Array.isArray(dogs)) {
+      for (let i = 0; i < dogs.length; i++) {
+        const root = dogs[i]?.root || dogs[i]?.body?.root;
+        if (root && this._isDescendantOf(obj, root)) return true;
+      }
+      return false;
+    }
+    const root = dogs?.root || dogs?.body?.root;
+    return root ? this._isDescendantOf(obj, root) : false;
+  }
+
   /**
    * origin -> dest (+ overshoot) のレイキャストで遮蔽物を検出する。
    * 戻り値: null（遮蔽なし）または { distance, isFoliage }
    */
-  _raycastOcclusion(origin, dest, dog, overshoot = 0, stopOnFirstHit = false) {
+  _raycastOcclusion(origin, dest, dogs, overshoot = 0, stopOnFirstHit = false) {
     if (this._occluders.length === 0) return null;
 
     const dir = this._tmpRayDir.subVectors(dest, origin);
@@ -796,7 +1222,6 @@ export class FollowCamera {
     this._raycaster.far = maxFar;
 
     const ray = this._raycaster.ray;
-    const dogRoot = dog?.root || dog?.body?.root || null;
 
     let bestDist = Infinity;
     let bestIsFoliage = true;
@@ -805,7 +1230,7 @@ export class FollowCamera {
       const entry = this._occluders[i];
       const mesh = entry.mesh;
       if (!this._isWorldVisible(mesh)) continue;
-      if (dogRoot && this._isDescendantOf(mesh, dogRoot)) continue;
+      if (this._isDescendantOfAnyDog(mesh, dogs)) continue;
 
       const curFar = Math.min(maxFar, bestDist);
       const curFarSq = curFar * curFar;
@@ -1324,9 +1749,9 @@ export class FollowCamera {
   // ==========================================================================
   // 安全なカメラ位置探索（回り込み・樹冠下回避・近づき）
   // ==========================================================================
-  _computeCandidateY(cx, cz, dogGroundY, desiredHeight) {
+  _computeCandidateY(cx, cz, dogGroundY, desiredHeight, maxHeight = MAX_HEIGHT) {
     const camGroundY = this._getGroundY(cx, cz);
-    const relHeight = clamp(desiredHeight, MIN_HEIGHT, MAX_HEIGHT);
+    const relHeight = clamp(desiredHeight, MIN_HEIGHT, maxHeight);
     let cy = Math.max(dogGroundY + relHeight, camGroundY + 0.55);
     const canopyCap = this._getTreeCanopyMaxY(cx, cz);
     if (cy > canopyCap) {
@@ -1335,28 +1760,48 @@ export class FollowCamera {
     return cy;
   }
 
-  _isCandidateValid(dogTarget, cx, cy, cz, dog, dogInDoghouse, checkWhiskers) {
+  _isCandidateValid(dogTarget, cx, cy, cz, dogs, dogInDoghouse, checkWhiskers, extraTargets = null) {
     if (!this._isPositionClear(cx, cy, cz)) return false;
     if (!this._isAnalyticLineOfSightClear(dogTarget, cx, cy, cz, dogInDoghouse)) return false;
 
+    if (extraTargets) {
+      for (let i = 0; i < extraTargets.length; i++) {
+        if (!this._isAnalyticLineOfSightClear(extraTargets[i], cx, cy, cz, dogInDoghouse)) {
+          return false;
+        }
+      }
+    }
+
     const cand = this._tmpCandPos.set(cx, cy, cz);
-    if (this._raycastOcclusion(dogTarget, cand, dog, CAM_CLEARANCE, true) !== null) {
+    if (this._raycastOcclusion(dogTarget, cand, dogs, CAM_CLEARANCE, true) !== null) {
       return false;
     }
-    if (checkWhiskers && !this._isRayWhiskerClear(dogTarget, cand, dog)) {
+    if (checkWhiskers && !this._isRayWhiskerClear(dogTarget, cand, dogs)) {
       return false;
     }
     return true;
   }
 
-  _findSafeCameraPos(dogPos, dogGroundY, dogTarget, baseAzimuth, desiredDist, desiredHeight, dog, dogInDoghouse) {
+  _findSafeCameraPos(
+    dogPos,
+    dogGroundY,
+    dogTarget,
+    baseAzimuth,
+    desiredDist,
+    desiredHeight,
+    dogs,
+    dogInDoghouse,
+    maxDist = MAX_DIST,
+    maxHeight = MAX_HEIGHT,
+    extraTargets = null
+  ) {
     // 1. まず希望アングル（offset = 0）をそのまま評価
-    const baseDist = clamp(desiredDist, MIN_DIST, MAX_DIST);
+    const baseDist = clamp(desiredDist, MIN_DIST, maxDist);
     const baseX = dogPos.x + Math.sin(baseAzimuth) * baseDist;
     const baseZ = dogPos.z + Math.cos(baseAzimuth) * baseDist;
-    const baseY = this._computeCandidateY(baseX, baseZ, dogGroundY, desiredHeight);
+    const baseY = this._computeCandidateY(baseX, baseZ, dogGroundY, desiredHeight, maxHeight);
 
-    if (this._isCandidateValid(dogTarget, baseX, baseY, baseZ, dog, dogInDoghouse, true)) {
+    if (this._isCandidateValid(dogTarget, baseX, baseY, baseZ, dogs, dogInDoghouse, true, extraTargets)) {
       return {
         pos: this._tmpSafePos.set(baseX, baseY, baseZ),
         azimuth: baseAzimuth,
@@ -1383,8 +1828,8 @@ export class FollowCamera {
         const az = baseAzimuth + dir * step;
         const cx = dogPos.x + Math.sin(az) * baseDist;
         const cz = dogPos.z + Math.cos(az) * baseDist;
-        const cy = this._computeCandidateY(cx, cz, dogGroundY, desiredHeight);
-        if (this._isCandidateValid(dogTarget, cx, cy, cz, dog, dogInDoghouse, true)) {
+        const cy = this._computeCandidateY(cx, cz, dogGroundY, desiredHeight, maxHeight);
+        if (this._isCandidateValid(dogTarget, cx, cy, cz, dogs, dogInDoghouse, true, extraTargets)) {
           return {
             pos: this._tmpSafePos.set(cx, cy, cz),
             azimuth: az,
@@ -1400,12 +1845,12 @@ export class FollowCamera {
       const az = baseAzimuth + pullAngles[i];
       const probeX = dogPos.x + Math.sin(az) * baseDist;
       const probeZ = dogPos.z + Math.cos(az) * baseDist;
-      const probeY = this._computeCandidateY(probeX, probeZ, dogGroundY, desiredHeight);
+      const probeY = this._computeCandidateY(probeX, probeZ, dogGroundY, desiredHeight, maxHeight);
 
       const hit = this._raycastOcclusion(
         dogTarget,
         this._tmpCandPos.set(probeX, probeY, probeZ),
-        dog,
+        dogs,
         CAM_CLEARANCE,
         false
       );
@@ -1416,16 +1861,16 @@ export class FollowCamera {
         pullCandidates.push(clamp(hit.distance - 0.55, MIN_AVOID_DIST, baseDist * 0.92));
       }
       pullCandidates.push(
-        clamp(baseDist * 0.8, MIN_DIST, MAX_DIST),
-        clamp(baseDist * 0.65, MIN_AVOID_DIST, MAX_DIST)
+        clamp(baseDist * 0.8, MIN_DIST, maxDist),
+        clamp(baseDist * 0.65, MIN_AVOID_DIST, maxDist)
       );
 
       for (let d = 0; d < pullCandidates.length; d++) {
         const dist = pullCandidates[d];
         const cx = dogPos.x + Math.sin(az) * dist;
         const cz = dogPos.z + Math.cos(az) * dist;
-        const cy = this._computeCandidateY(cx, cz, dogGroundY, Math.min(desiredHeight, 1.45));
-        if (this._isCandidateValid(dogTarget, cx, cy, cz, dog, dogInDoghouse, true)) {
+        const cy = this._computeCandidateY(cx, cz, dogGroundY, Math.min(desiredHeight, 1.45), maxHeight);
+        if (this._isCandidateValid(dogTarget, cx, cy, cz, dogs, dogInDoghouse, true, null)) {
           return {
             pos: this._tmpSafePos.set(cx, cy, cz),
             azimuth: az,
@@ -1440,7 +1885,7 @@ export class FollowCamera {
     const distScales = [1.0, 0.78, 0.58];
     for (let dIdx = 0; dIdx < distScales.length; dIdx++) {
       const minD = dIdx === 0 ? MIN_DIST : MIN_AVOID_DIST;
-      const dist = clamp(baseDist * distScales[dIdx], minD, MAX_DIST);
+      const dist = clamp(baseDist * distScales[dIdx], minD, maxDist);
       const checkWhiskers = dIdx < 2;
       for (let i = 0; i < wideAngles.length; i++) {
         const step = wideAngles[i];
@@ -1450,8 +1895,8 @@ export class FollowCamera {
           const az = baseAzimuth + dir * step;
           const cx = dogPos.x + Math.sin(az) * dist;
           const cz = dogPos.z + Math.cos(az) * dist;
-          const cy = this._computeCandidateY(cx, cz, dogGroundY, desiredHeight);
-          if (this._isCandidateValid(dogTarget, cx, cy, cz, dog, dogInDoghouse, checkWhiskers)) {
+          const cy = this._computeCandidateY(cx, cz, dogGroundY, desiredHeight, maxHeight);
+          if (this._isCandidateValid(dogTarget, cx, cy, cz, dogs, dogInDoghouse, checkWhiskers, null)) {
             return {
               pos: this._tmpSafePos.set(cx, cy, cz),
               azimuth: az,
@@ -1469,8 +1914,8 @@ export class FollowCamera {
       const az = baseAzimuth + prefDir * (k * ((Math.PI * 2) / 12));
       const cx = dogPos.x + Math.sin(az) * tightDist;
       const cz = dogPos.z + Math.cos(az) * tightDist;
-      const cy = this._computeCandidateY(cx, cz, dogGroundY, tightHeight);
-      if (this._isCandidateValid(dogTarget, cx, cy, cz, dog, dogInDoghouse, false)) {
+      const cy = this._computeCandidateY(cx, cz, dogGroundY, tightHeight, maxHeight);
+      if (this._isCandidateValid(dogTarget, cx, cy, cz, dogs, dogInDoghouse, false, null)) {
         return {
           pos: this._tmpSafePos.set(cx, cy, cz),
           azimuth: az,
@@ -1484,7 +1929,7 @@ export class FollowCamera {
     const fallbackAz = Math.atan2(-dogPos.x, -dogPos.z);
     const fx = clamp(dogPos.x + Math.sin(fallbackAz) * MIN_AVOID_DIST, B.minX, B.maxX);
     const fz = clamp(dogPos.z + Math.cos(fallbackAz) * MIN_AVOID_DIST, B.minZ, B.maxZ);
-    const fy = this._computeCandidateY(fx, fz, dogGroundY, Math.min(desiredHeight, 1.2));
+    const fy = this._computeCandidateY(fx, fz, dogGroundY, Math.min(desiredHeight, 1.2), maxHeight);
     return {
       pos: this._tmpSafePos.set(fx, fy, fz),
       azimuth: fallbackAz,
@@ -1496,7 +1941,17 @@ export class FollowCamera {
    * 現在位置から目標位置への直線移動が障害物を横切る場合、
    * 犬の周りを滑らかに弧を描いて回り込む中間目標へ差し替える
    */
-  _computeArcDetourIfBlocked(currentPos, desiredPos, dogPos, dogGroundY, dogTarget, dog, dogInDoghouse) {
+  _computeArcDetourIfBlocked(
+    currentPos,
+    desiredPos,
+    dogPos,
+    dogGroundY,
+    dogTarget,
+    dogs,
+    dogInDoghouse,
+    maxDist = MAX_DIST,
+    maxHeight = MAX_HEIGHT
+  ) {
     const curAz = Math.atan2(currentPos.x - dogPos.x, currentPos.z - dogPos.z);
     const dstAz = Math.atan2(desiredPos.x - dogPos.x, desiredPos.z - dogPos.z);
     const dAz = wrapAngle(dstAz - curAz);
@@ -1513,19 +1968,19 @@ export class FollowCamera {
     const curDist = clamp(
       Math.hypot(currentPos.x - dogPos.x, currentPos.z - dogPos.z),
       MIN_AVOID_DIST,
-      MAX_DIST
+      maxDist
     );
     const dstDist = clamp(
       Math.hypot(desiredPos.x - dogPos.x, desiredPos.z - dogPos.z),
       MIN_AVOID_DIST,
-      MAX_DIST
+      maxDist
     );
     const stepAngle = Math.min(Math.abs(dAz), 0.58);
     const midDist = (curDist + dstDist) * 0.5;
     const midHeight = clamp(
       (currentPos.y + desiredPos.y) * 0.5 - dogGroundY,
       MIN_HEIGHT,
-      MAX_HEIGHT
+      maxHeight
     );
 
     for (let s = 0; s < 2; s++) {
@@ -1533,8 +1988,8 @@ export class FollowCamera {
       const wpAz = curAz + dir * stepAngle;
       const wx = dogPos.x + Math.sin(wpAz) * midDist;
       const wz = dogPos.z + Math.cos(wpAz) * midDist;
-      const wy = this._computeCandidateY(wx, wz, dogGroundY, midHeight);
-      if (this._isCandidateValid(dogTarget, wx, wy, wz, dog, dogInDoghouse, false)) {
+      const wy = this._computeCandidateY(wx, wz, dogGroundY, midHeight, maxHeight);
+      if (this._isCandidateValid(dogTarget, wx, wy, wz, dogs, dogInDoghouse, false, null)) {
         this._avoidDir = dir;
         desiredPos.set(wx, wy, wz);
         return true;
@@ -1650,8 +2105,8 @@ export class FollowCamera {
    * 実際の現在位置から犬までの間に遮蔽物が割り込んだ場合、
    * スプリングアームのように遮蔽物の手前へ滑らかに寄せる
    */
-  _applySpringArmPullIn(dogTarget, pos, dog, dogInDoghouse, dt) {
-    const hit = this._raycastOcclusion(dogTarget, pos, dog, 0.25, false);
+  _applySpringArmPullIn(dogTarget, pos, dogs, dogInDoghouse, dt, softOnly = false) {
+    const hit = this._raycastOcclusion(dogTarget, pos, dogs, 0.25, false);
     if (!hit) return;
 
     const dir = this._tmpRayDir.subVectors(pos, dogTarget);
@@ -1673,9 +2128,9 @@ export class FollowCamera {
       return;
     }
 
-    // 枝葉はソフトに引き寄せ、固い壁・幹・岩・灯篭は視界が塞がれないよう素早く手前へ寄せる
-    if (hit.isFoliage) {
-      const t = 1 - Math.exp(-11.0 * dt);
+    // 枝葉やフォーカス切替中はソフトに引き寄せ、固い壁・幹・岩・灯篭は視界が塞がれないよう素早く手前へ寄せる
+    if (hit.isFoliage || softOnly) {
+      const t = 1 - Math.exp(-(softOnly ? 5.5 : 11.0) * dt);
       pos.lerp(pullPos, t);
     } else {
       if (hit.distance < curDist - 0.25) {

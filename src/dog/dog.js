@@ -54,6 +54,13 @@ function computeBodyMargin(breed) {
   return clamp(bodyLen * 0.5 + 0.15, 0.28, 0.65);
 }
 
+function computeCollisionRadius(breed) {
+  const bodyLen = (typeof breed?.bodyLength === 'number' && Number.isFinite(breed.bodyLength))
+    ? breed.bodyLength
+    : ((typeof breed?.body?.length === 'number' && Number.isFinite(breed.body.length)) ? breed.body.length : 0.5);
+  return bodyLen * 0.5 + 0.1;
+}
+
 function isWalkable(garden, x, z, margin = 0.4) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
   if (Math.abs(x) > 14.7 || Math.abs(z) > 14.7) return false;
@@ -133,11 +140,13 @@ function resolveLegJoints(joints) {
 }
 
 export class Dog {
-  constructor(scene, garden, breed) {
+  constructor(scene, garden, breed, id = 0) {
     this.scene = scene;
     this.garden = garden;
     this.breed = breed;
+    this.id = typeof id === 'number' ? id : (typeof id?.id === 'number' ? id.id : 0);
     this.bodyMargin = computeBodyMargin(breed);
+    this.collisionRadius = computeCollisionRadius(breed);
 
     const spawn = findSpawnPoint(garden, this.bodyMargin);
     this.position = new THREE.Vector3(spawn.x, getGroundY(garden, spawn.x, spawn.z), spawn.z);
@@ -145,7 +154,7 @@ export class Dog {
     this.speed = 0;
     this._angularVel = 0;
     this._blockedLastFrame = false;
-    this._escapeSide = 1;
+    this._escapeSide = (this.id % 2 === 0) ? 1 : -1;
 
     // Terrain alignment & dynamic body tilt
     this._pitch = 0;
@@ -173,6 +182,7 @@ export class Dog {
 
     // Build brain, body, and animator
     this.brain = new DogBrain(breed);
+    this.brain.dogId = this.id;
     this.body = null;
     this.animator = null;
     this._legJoints = { FL: [], FR: [], BL: [], BR: [] };
@@ -246,6 +256,7 @@ export class Dog {
 
     this.breed = newBreed;
     this.bodyMargin = computeBodyMargin(newBreed);
+    this.collisionRadius = computeCollisionRadius(newBreed);
     this.brain.setBreed(newBreed);
 
     // If switching to a larger breed put the dog too close to an obstacle, nudge to nearest walkable point
@@ -293,15 +304,22 @@ export class Dog {
     const garden = ctx.garden || this.garden;
     const clock = ctx.clock || null;
     const cameraPos = ctx.cameraPos || ctx.camera?.position || null;
+    const others = Array.isArray(ctx.others)
+      ? ctx.others.filter((o) => o && o !== this && o.position)
+      : [];
+
+    this.brain.dogId = this.id;
 
     // 1. Run AI brain
     const brainOut = this.brain.update(wDt, {
       clock,
       garden,
       dog: {
+        id: this.id,
         position: this.position,
         heading: this.heading,
         speed: this.speed,
+        collisionRadius: this.collisionRadius,
         furWetness: this.furWetness,
         snowOnFur: this.snowOnFur,
         dirtiness: this.dirtiness,
@@ -309,6 +327,8 @@ export class Dog {
         inShelter: this.inShelter,
         blocked: this._blockedLastFrame,
       },
+      selfDog: this,
+      others,
       cameraPos,
       animator: this.animator,
       realDt: dt,
@@ -317,8 +337,8 @@ export class Dog {
 
     this.inShelter = Boolean(brainOut.inShelter);
 
-    // 2. Smooth physical locomotion & terrain following
-    this._integrateLocomotion(dt, garden, brainOut.locomotion, brainOut.motionEffects);
+    // 2. Smooth physical locomotion & terrain following (with inter-dog avoidance & separation)
+    this._integrateLocomotion(dt, garden, brainOut.locomotion, brainOut.motionEffects, others);
 
     // 3. Environmental fur wetness, snow, dirtiness, and heat load
     this._updateCoatAndHeat(dt, clock, garden, brainOut.coatDelta);
@@ -347,7 +367,29 @@ export class Dog {
     return isWalkable(garden, x, z, this.bodyMargin);
   }
 
-  _pickEscapeHeading(garden, x, z, heading, allowInterior) {
+  _getOtherRadius(other) {
+    if (typeof other?.collisionRadius === 'number' && Number.isFinite(other.collisionRadius)) {
+      return other.collisionRadius;
+    }
+    return computeCollisionRadius(other?.breed);
+  }
+
+  _collidesWithOthers(x, z, others, extraPad = 0) {
+    if (!others || others.length === 0) return null;
+    for (let i = 0; i < others.length; i++) {
+      const o = others[i];
+      if (!o || !o.position) continue;
+      const minDist = this.collisionRadius + this._getOtherRadius(o) + extraPad;
+      const dx = x - o.position.x;
+      const dz = z - o.position.z;
+      if (dx * dx + dz * dz < minDist * minDist) {
+        return o;
+      }
+    }
+    return null;
+  }
+
+  _pickEscapeHeading(garden, x, z, heading, allowInterior, others = null) {
     const stepOffsets = [0.45, 0.9, 1.35, 1.8, 2.3, Math.PI];
     const probeDists = [0.35, 0.75, 1.2];
     const sides = [this._escapeSide, -this._escapeSide];
@@ -365,7 +407,12 @@ export class Dog {
         const sz = Math.cos(cand);
         let clearCount = 0;
         for (let d = 0; d < probeDists.length; d++) {
-          if (this._isPositionWalkable(garden, x + sx * probeDists[d], z + sz * probeDists[d], allowInterior)) {
+          const px = x + sx * probeDists[d];
+          const pz = z + sz * probeDists[d];
+          if (
+            this._isPositionWalkable(garden, px, pz, allowInterior) &&
+            !this._collidesWithOthers(px, pz, others, 0.04)
+          ) {
             clearCount++;
           } else {
             break;
@@ -386,9 +433,76 @@ export class Dog {
     return bestAngle;
   }
 
-  _integrateLocomotion(dt, garden, loco, fx) {
+  _resolveDogCollisions(garden, others, allowInterior) {
+    if (!others || others.length === 0) return;
+    for (let i = 0; i < others.length; i++) {
+      const other = others[i];
+      if (!other || !other.position) continue;
+      const otherRadius = this._getOtherRadius(other);
+      const minDist = this.collisionRadius + otherRadius;
+      const dx = this.position.x - other.position.x;
+      const dz = this.position.z - other.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= minDist) continue;
+
+      let ux, uz;
+      if (dist > 1e-4) {
+        ux = dx / dist;
+        uz = dz / dist;
+      } else {
+        const a = ((this.id - (other.id ?? 0)) * 1.57) + 0.35;
+        ux = Math.sin(a);
+        uz = Math.cos(a);
+      }
+
+      const push = (minDist - dist) + 0.008;
+      const baseAngle = Math.atan2(ux, uz);
+      const tryOffsets = [0, 0.35, -0.35, 0.75, -0.75, 1.15, -1.15, 1.55, -1.55];
+      let resolved = false;
+
+      // Try pushing self out along separation vector (or slightly angled if near wall/obstacle)
+      for (let k = 0; k < tryOffsets.length; k++) {
+        const ang = baseAngle + tryOffsets[k];
+        const mult = k === 0 ? 1.0 : 1.15;
+        const tx = clamp(this.position.x + Math.sin(ang) * push * mult, -14.6, 14.6);
+        const tz = clamp(this.position.z + Math.cos(ang) * push * mult, -14.6, 14.6);
+        const newDist = Math.hypot(tx - other.position.x, tz - other.position.z);
+        if (newDist >= minDist - 0.002 && this._isPositionWalkable(garden, tx, tz, allowInterior)) {
+          this.position.x = tx;
+          this.position.z = tz;
+          resolved = true;
+          break;
+        }
+      }
+
+      // Fallback: if self is pinned against a wall/doghouse, nudge other gently if possible
+      if (!resolved && !other.brain?._insideDoghouse) {
+        const otherMargin = other.bodyMargin || computeBodyMargin(other.breed);
+        const otx = clamp(other.position.x - ux * push, -14.6, 14.6);
+        const otz = clamp(other.position.z - uz * push, -14.6, 14.6);
+        if (isWalkable(garden, otx, otz, otherMargin)) {
+          other.position.x = otx;
+          other.position.z = otz;
+          other.position.y = getGroundY(garden, otx, otz) + (other._jumpHeight || 0);
+          if (other.body?.root) {
+            other.body.root.position.copy(other.position);
+          }
+          resolved = true;
+        }
+      }
+
+      // Final hard guarantee: never leave bodies overlapping
+      if (!resolved) {
+        this.position.x = clamp(other.position.x + ux * (minDist + 0.008), -14.6, 14.6);
+        this.position.z = clamp(other.position.z + uz * (minDist + 0.008), -14.6, 14.6);
+      }
+    }
+  }
+
+  _integrateLocomotion(dt, garden, loco, fx, others = null) {
     const prevHeading = this.heading;
     const allowInterior = Boolean(loco.allowDoghouseInterior);
+    const hasOthers = Boolean(others && others.length > 0);
     this._blockedLastFrame = false;
 
     if (loco.mode === 'move' || loco.mode === 'circle') {
@@ -425,13 +539,58 @@ export class Dog {
       const nx = prevX + dx;
       const nz = prevZ + dz;
 
-      const destWalkable =
+      const envWalkable =
         this._isPositionWalkable(garden, midX, midZ, allowInterior) &&
         this._isPositionWalkable(garden, nx, nz, allowInterior);
 
-      if (destWalkable) {
+      let dogBlocked = null;
+      if (hasOthers && envWalkable) {
+        const hit = this._collidesWithOthers(nx, nz, others, 0) || this._collidesWithOthers(midX, midZ, others, 0);
+        if (hit) {
+          // Allow movement only if it strictly increases distance away from the colliding dog
+          const curDist = Math.hypot(prevX - hit.position.x, prevZ - hit.position.z);
+          const nextDist = Math.hypot(nx - hit.position.x, nz - hit.position.z);
+          if (nextDist <= curDist + 0.002) {
+            dogBlocked = hit;
+          }
+        }
+      }
+
+      if (envWalkable && !dogBlocked) {
         this.position.x = nx;
         this.position.z = nz;
+      } else if (dogBlocked) {
+        // Slide tangentially around the other dog if possible, otherwise slow & steer away
+        const rx = prevX - dogBlocked.position.x;
+        const rz = prevZ - dogBlocked.position.z;
+        const rd = Math.hypot(rx, rz) || 1;
+        const t1x = -rz / rd;
+        const t1z = rx / rd;
+        const dot1 = dx * t1x + dz * t1z;
+        const sign = dot1 >= 0 ? 1 : -1;
+        const slideDist = stepDist * 0.72;
+        const sx = prevX + t1x * sign * slideDist;
+        const sz = prevZ + t1z * sign * slideDist;
+
+        if (
+          this._isPositionWalkable(garden, sx, sz, allowInterior) &&
+          !this._collidesWithOthers(sx, sz, others, 0)
+        ) {
+          this.position.x = sx;
+          this.position.z = sz;
+          const slideAngle = Math.atan2(sx - prevX, sz - prevZ);
+          const diff = wrapAngle(slideAngle - this.heading);
+          this.heading = wrapAngle(this.heading + clamp(diff, -5.0 * dt, 5.0 * dt));
+        } else {
+          this._blockedLastFrame = true;
+          this.position.x = prevX;
+          this.position.z = prevZ;
+          this.speed = Math.min(this.speed * 0.25, 0.3);
+          const escapeHeading = this._pickEscapeHeading(garden, prevX, prevZ, this.heading, allowInterior, others);
+          const diff = wrapAngle(escapeHeading - this.heading);
+          const maxEscapeTurn = Math.max(0.32, 6.2 * dt);
+          this.heading = wrapAngle(this.heading + clamp(diff, -maxEscapeTurn, maxEscapeTurn));
+        }
       } else {
         // Cancel this frame's movement and turn smoothly away from the obstacle
         this._blockedLastFrame = true;
@@ -454,12 +613,17 @@ export class Dog {
             this.heading = wrapAngle(this.heading + clamp(diff, -5.5 * dt, 5.5 * dt));
           }
         } else {
-          const escapeHeading = this._pickEscapeHeading(garden, prevX, prevZ, this.heading, allowInterior);
+          const escapeHeading = this._pickEscapeHeading(garden, prevX, prevZ, this.heading, allowInterior, others);
           const diff = wrapAngle(escapeHeading - this.heading);
           const maxEscapeTurn = Math.max(0.32, 6.2 * dt);
           this.heading = wrapAngle(this.heading + clamp(diff, -maxEscapeTurn, maxEscapeTurn));
         }
       }
+    }
+
+    // Post-move inter-dog overlap separation (never allow clipping between dogs)
+    if (hasOthers) {
+      this._resolveDogCollisions(garden, others, allowInterior);
     }
 
     const dHeading = wrapAngle(this.heading - prevHeading);

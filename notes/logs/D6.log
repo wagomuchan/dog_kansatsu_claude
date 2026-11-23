@@ -1,0 +1,6 @@
+以下の2ファイルを2匹モード仕様に対応しました（1匹モードの動作は変更なし）。
+
+- [dog.js](file:///home/user/dog_kansatsu_claude/src/dog/dog.js): `id`・`breed`・衝突半径（体長/2+0.1m）を公開し、`ctx.others` を脳と移動処理へ連携して移動前の回避スライドと移動後の押し戻し（めり込み禁止）を実装。
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): `NavigationHelper` の前方チェック・迂回探索で相手犬を動的障害物として回避するよう拡張。
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): ごはん皿・水入れ・犬小屋の占有判定を追加し、使用中は近くでおすわり順番待ち（または別行動）、犬小屋満室時は犬小屋前や縁側の下で寝る・雨宿りする挙動を追加。
+- [brain.js](file:///home/user/dog_kansatsu_claude/src/dog/brain.js): 2匹時のみ全体の2〜3割程度で発生する社会的行動（追いかけっこ交代・取っ組み合い・ボールの取り合い・あいさつ・並んで日なたぼっこ・くっついて寝る・毛づくろい・一緒に鳥や蝶を見る・つられ吠え・誘いの承諾/拒否/無視して昼寝）を実装。

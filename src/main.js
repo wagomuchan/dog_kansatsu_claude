@@ -14,27 +14,47 @@ import { Soundscape } from './audio.js';
 import { UI } from './ui.js';
 
 const STORAGE_KEY_BREED = 'dog_kansatsu_breed';
+const STORAGE_KEY_BREED_2 = 'dog_kansatsu_breed_2';
+const STORAGE_KEY_DOG_COUNT = 'dog_kansatsu_count';
 const MAX_REAL_DT = 0.1;
 const MAX_PIXEL_RATIO = 2;
+const EMPTY_OTHERS = Object.freeze([]);
 
-function loadSavedBreedId() {
+function loadStorage(key) {
   try {
-    return window.localStorage.getItem(STORAGE_KEY_BREED);
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function saveBreedId(id) {
+function saveStorage(key, value) {
   try {
-    window.localStorage.setItem(STORAGE_KEY_BREED, id);
+    window.localStorage.setItem(key, String(value));
   } catch {
     // プライベートブラウジングやストレージ制限時は無視
   }
 }
 
+function loadSavedDogCount() {
+  return loadStorage(STORAGE_KEY_DOG_COUNT) === '2' ? 2 : 1;
+}
+
 function findBreedById(id) {
   return BREEDS.find((b) => b.id === id) || BREEDS[0];
+}
+
+function pickDifferentBreed(firstBreed) {
+  return BREEDS.find((b) => b.id !== firstBreed.id) || BREEDS[1] || BREEDS[0];
+}
+
+function resolveInitialBreeds() {
+  const breed1 = findBreedById(loadStorage(STORAGE_KEY_BREED));
+  const saved2 = loadStorage(STORAGE_KEY_BREED_2);
+  const breed2 = saved2 && BREEDS.some((b) => b.id === saved2)
+    ? findBreedById(saved2)
+    : pickDifferentBreed(breed1);
+  return [breed1, breed2];
 }
 
 function createFallbackEnvironment(scene, renderer) {
@@ -60,20 +80,118 @@ function createFallbackEnvironment(scene, renderer) {
 
 function wireDogEvents(dog, soundscape) {
   if (!dog) return;
-  dog.onEvent = (name) => {
-    soundscape.playDogEvent(name, dog.position);
+  dog.onEvent = (name, pos) => {
+    soundscape.playDogEvent(name, pos || dog.position);
   };
 }
 
-function switchDogBreed(currentDog, newBreed, scene, garden, soundscape) {
+function isSpawnWalkable(garden, x, z, margin) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+  if (Math.abs(x) > 14.3 || Math.abs(z) > 14.3) return false;
+  if (garden && typeof garden.isInside === 'function') {
+    if (!garden.isInside(x, z, margin)) return false;
+  }
+  const dhIn = garden?.poi?.doghouseInside;
+  if (dhIn && Math.hypot(x - dhIn.x, z - dhIn.z) < 1.35) {
+    return false;
+  }
+  return true;
+}
+
+function getSafeGroundY(garden, x, z) {
+  if (garden && typeof garden.getGroundHeight === 'function') {
+    const y = garden.getGroundHeight(x, z);
+    if (Number.isFinite(y)) return y;
+  }
+  return 0;
+}
+
+function findSecondDogSpawn(garden, firstDog, secondDog) {
+  const origin = firstDog?.position || { x: 0, z: 2 };
+  const margin = Math.max(0.55, secondDog?.bodyMargin || 0.5);
+  const startAngle = Math.random() * Math.PI * 2;
+  const angleSteps = 24;
+
+  // まずは仕様通り 1匹目から 2〜3m 離れた歩ける点を探す
+  const preferredRadii = [2.5, 2.2, 2.8, 2.0, 3.0];
+  for (let rIdx = 0; rIdx < preferredRadii.length; rIdx++) {
+    const r = preferredRadii[rIdx];
+    for (let i = 0; i < angleSteps; i++) {
+      const a = startAngle + (i / angleSteps) * Math.PI * 2;
+      const x = origin.x + Math.sin(a) * r;
+      const z = origin.z + Math.cos(a) * r;
+      if (isSpawnWalkable(garden, x, z, margin)) {
+        const y = getSafeGroundY(garden, x, z);
+        const heading = Math.atan2(origin.x - x, origin.z - z) + (Math.random() - 0.5) * 0.5;
+        return { x, y, z, heading };
+      }
+    }
+  }
+
+  // 周囲が狭い場合は少し広げて探索
+  const fallbackRadii = [3.4, 3.9, 1.75, 4.6, 5.5];
+  for (let rIdx = 0; rIdx < fallbackRadii.length; rIdx++) {
+    const r = fallbackRadii[rIdx];
+    for (let i = 0; i < angleSteps; i++) {
+      const a = startAngle + (i / angleSteps) * Math.PI * 2;
+      const x = origin.x + Math.sin(a) * r;
+      const z = origin.z + Math.cos(a) * r;
+      if (isSpawnWalkable(garden, x, z, margin)) {
+        const y = getSafeGroundY(garden, x, z);
+        const heading = Math.atan2(origin.x - x, origin.z - z) + (Math.random() - 0.5) * 0.5;
+        return { x, y, z, heading };
+      }
+    }
+  }
+
+  if (garden && typeof garden.randomWalkablePoint === 'function') {
+    for (let i = 0; i < 8; i++) {
+      const pt = garden.randomWalkablePoint();
+      if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.z) && isSpawnWalkable(garden, pt.x, pt.z, margin)) {
+        return {
+          x: pt.x,
+          y: getSafeGroundY(garden, pt.x, pt.z),
+          z: pt.z,
+          heading: Math.atan2(origin.x - pt.x, origin.z - pt.z),
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function createDog(index, breed, scene, garden, soundscape, firstDog = null) {
+  const d = new Dog(scene, garden, breed);
+  d.id = index;
+
+  if (index > 0 && firstDog) {
+    const spawn = findSecondDogSpawn(garden, firstDog, d);
+    if (spawn && d.position) {
+      d.position.set(spawn.x, spawn.y, spawn.z);
+      d.heading = spawn.heading;
+      if (d.root) {
+        d.root.position.copy(d.position);
+        d.root.rotation.y = d.heading;
+      }
+    }
+  }
+
+  wireDogEvents(d, soundscape);
+  return d;
+}
+
+function switchDogBreed(currentDog, newBreed, scene, garden, soundscape, index) {
   // Dog 側が専用メソッドを持つ場合はそちらを使用
   if (typeof currentDog.setBreed === 'function') {
     currentDog.setBreed(newBreed);
+    currentDog.id = index;
     wireDogEvents(currentDog, soundscape);
     return currentDog;
   }
   if (typeof currentDog.changeBreed === 'function') {
     currentDog.changeBreed(newBreed);
+    currentDog.id = index;
     wireDogEvents(currentDog, soundscape);
     return currentDog;
   }
@@ -91,11 +209,14 @@ function switchDogBreed(currentDog, newBreed, scene, garden, soundscape) {
   }
 
   const nextDog = new Dog(scene, garden, newBreed);
+  nextDog.id = index;
   if (savedPos && nextDog.position) {
     nextDog.position.copy(savedPos);
+    if (nextDog.root) nextDog.root.position.copy(savedPos);
   }
   if (Number.isFinite(savedHeading)) {
     nextDog.heading = savedHeading;
+    if (nextDog.root) nextDog.root.rotation.y = savedHeading;
   }
   if (nextDog.brain) {
     if (savedNeeds && nextDog.brain.needs) {
@@ -113,28 +234,69 @@ function switchDogBreed(currentDog, newBreed, scene, garden, soundscape) {
   return nextDog;
 }
 
+function updateAllDogs(dogs, realDt, worldDt, clock, garden, camera) {
+  const count = dogs.length;
+  for (let i = 0; i < count; i++) {
+    const d = dogs[i];
+    const others = count > 1 ? dogs.filter((o) => o !== d) : EMPTY_OTHERS;
+    d.update(realDt, worldDt, {
+      clock,
+      garden,
+      cameraPos: camera.position,
+      camera,
+      others,
+    });
+  }
+}
+
 function init() {
   const container = document.getElementById('viewport');
-  const savedId = loadSavedBreedId();
-  let currentBreed = findBreedById(savedId);
+  const currentBreeds = resolveInitialBreeds();
+  let dogCount = loadSavedDogCount();
 
   const soundscape = new Soundscape();
+  const dogs = [];
   let ui = null;
-  let dog = null;
   let garden = null;
   let scene = null;
 
+  const applyDogCount = (nextCount) => {
+    const normalized = nextCount === 2 ? 2 : 1;
+    dogCount = normalized;
+    saveStorage(STORAGE_KEY_DOG_COUNT, normalized);
+    if (!scene || !garden) return;
+
+    if (normalized === 2 && dogs.length === 1) {
+      // 1匹目の位置・状態は保ったまま、2匹目を2〜3m離れた歩ける点へ追加
+      const secondDog = createDog(1, currentBreeds[1], scene, garden, soundscape, dogs[0]);
+      dogs.push(secondDog);
+    } else if (normalized === 1 && dogs.length > 1) {
+      // 1匹目は保ったまま、2匹目のみ削除
+      for (let i = dogs.length - 1; i >= 1; i--) {
+        if (typeof dogs[i]?.dispose === 'function') {
+          dogs[i].dispose();
+        }
+      }
+      dogs.length = 1;
+    }
+  };
+
   ui = new UI({
     breeds: BREEDS,
-    initialBreedId: currentBreed.id,
-    onBreedChange: (breedId) => {
+    initialBreedIds: [currentBreeds[0].id, currentBreeds[1].id],
+    initialCount: dogCount,
+    onBreedChange: (breedId, index = 0) => {
+      const slot = index === 1 ? 1 : 0;
       const nextBreed = findBreedById(breedId);
-      if (!nextBreed || nextBreed.id === currentBreed.id) return;
-      currentBreed = nextBreed;
-      saveBreedId(nextBreed.id);
-      if (dog && scene && garden) {
-        dog = switchDogBreed(dog, nextBreed, scene, garden, soundscape);
+      if (!nextBreed || nextBreed.id === currentBreeds[slot].id) return;
+      currentBreeds[slot] = nextBreed;
+      saveStorage(slot === 0 ? STORAGE_KEY_BREED : STORAGE_KEY_BREED_2, nextBreed.id);
+      if (dogs[slot] && scene && garden) {
+        dogs[slot] = switchDogBreed(dogs[slot], nextBreed, scene, garden, soundscape, slot);
       }
+    },
+    onCountChange: (nextCount) => {
+      applyDogCount(nextCount);
     },
     onSoundToggle: () => {
       const enabled = soundscape.toggle();
@@ -213,7 +375,7 @@ function init() {
     composer.addPass(bloomPass);
     composer.addPass(outputPass);
 
-    // 世界時計・庭・犬・追いかけカメラ
+    // 世界時計・庭・犬（配列管理）・追いかけカメラ
     const clock = new WorldClock(30);
     garden = new Garden(scene, renderer);
 
@@ -229,12 +391,25 @@ function init() {
       createFallbackEnvironment(scene, renderer);
     }
 
-    dog = new Dog(scene, garden, currentBreed);
-    wireDogEvents(dog, soundscape);
+    dogs.push(createDog(0, currentBreeds[0], scene, garden, soundscape));
+    if (dogCount === 2) {
+      dogs.push(createDog(1, currentBreeds[1], scene, garden, soundscape, dogs[0]));
+    }
 
     const followCamera = new FollowCamera(camera, garden);
+    const audioFocusProxy = { position: new THREE.Vector3() };
+
     // 確認用: ?debug をつけると中身をのぞける
-    if (location.search.includes('debug')) window.__app = { camera, followCamera, clock, garden, getDog: () => dog };
+    if (location.search.includes('debug')) {
+      window.__app = {
+        camera,
+        followCamera,
+        clock,
+        garden,
+        getDog: () => dogs[0],
+        getDogs: () => dogs,
+      };
+    }
 
     // リサイズ対応
     const onResize = () => {
@@ -263,14 +438,9 @@ function init() {
     // 初回フレームを描画してから読み込み画面を静かにフェードアウト
     const initWorldDt = clock.gameDtFromReal(0.016);
     garden.update(0.016, clock);
-    dog.update(0.016, initWorldDt, {
-      clock,
-      garden,
-      cameraPos: camera.position,
-      camera,
-    });
-    followCamera.update(0.016, dog);
-    ui.update(clock, garden, dog);
+    updateAllDogs(dogs, 0.016, initWorldDt, clock, garden, camera);
+    followCamera.update(0.016, dogs.length === 1 ? dogs[0] : dogs);
+    ui.update(clock, garden, dogs);
     bloomPass.strength = clock.isNight ? 0.22 : 0.14;
     renderer.toneMappingExposure = computeTargetExposure(clock);
     composer.render();
@@ -292,15 +462,19 @@ function init() {
       const worldDt = clock.gameDtFromReal(realDt);
 
       garden.update(realDt, clock);
-      dog.update(realDt, worldDt, {
-        clock,
-        garden,
-        cameraPos: camera.position,
-        camera,
-      });
-      followCamera.update(realDt, dog);
-      soundscape.update(realDt, clock, garden, dog, camera.position);
-      ui.update(clock, garden, dog);
+      updateAllDogs(dogs, realDt, worldDt, clock, garden, camera);
+      followCamera.update(realDt, dogs.length === 1 ? dogs[0] : dogs);
+
+      let audioTarget = dogs[0];
+      if (dogs.length > 1) {
+        const lookPos = followCamera.getLookAtPosition?.();
+        if (lookPos) {
+          audioFocusProxy.position.copy(lookPos);
+          audioTarget = audioFocusProxy;
+        }
+      }
+      soundscape.update(realDt, clock, garden, audioTarget, camera.position);
+      ui.update(clock, garden, dogs);
 
       // 夜の灯りが優しく滲むようブルームと露出をなめらかに調整
       const targetBloom = clock.isNight ? 0.22 : 0.14;
